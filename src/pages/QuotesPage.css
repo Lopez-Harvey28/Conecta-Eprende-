@@ -1,0 +1,773 @@
+/* ============================================================
+   QuotesPage — Enhanced Chat Styling
+   Inspired by WhatsApp (bubbles, day separators, ticks),
+   iMessage (tapback reactions, gradients), Telegram (reply quotes),
+   Slack (reaction pills, hover toolbar), Discord (message grouping),
+   Intercom (quick replies, connection status).
+   ============================================================ */
+
+/* ============================================================
+   Typing Indicator — three bouncing dots (WhatsApp-style)
+   ============================================================ */
+.typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 16px;
+  background: white;
+  border: 1px solid rgb(226, 232, 240);
+  border-radius: 18px 18px 18px 4px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.typing-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #94a3b8;
+  animation: typing-bounce 1.4s infinite ease-in-out both;
+}
+
+.typing-dot:nth-child(1) { animation-delay: -0.32s; }
+.typing-dot:nth-child(2) { animation-delay: -0.16s; }
+.typing-dot:nth-child(3) { animation-delay: 0s; }
+
+@keyframes typing-bounce {
+  0%, 80%, 100% {
+    transform: scale(0.6);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Typing label that sits next to the indicator ("María está escribiendo…") */
+.typing-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  margin-left: 8px;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+/* ============================================================
+   Day Separator — "Hoy" / "Ayer" / "12 de junio de 2025"
+   ============================================================ */
+.day-separator {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 24px 0 16px;
+  position: relative;
+}
+
+.day-separator::before,
+.day-separator::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent,
+    rgba(148, 163, 184, 0.3) 50%,
+    transparent
+  );
+}
+
+.day-separator-pill {
+  padding: 4px 14px;
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.05);
+  margin: 0 12px;
+  white-space: nowrap;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+/* ============================================================
+   Message Group — Discord-style consecutive message grouping.
+   Messages from the same author within 5 minutes share avatar
+   and header; only the last one shows the timestamp.
+   ============================================================ */
+.msg-group {
+  display: flex;
+  gap: 10px;
+  align-items: flex-end;
+}
+
+.msg-group.from-me {
+  flex-direction: row-reverse;
+}
+
+.msg-group-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  color: white;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.1);
+  font-family: "Inter", system-ui, sans-serif;
+  letter-spacing: -0.02em;
+}
+
+/* Avatar placeholder when consecutive messages share an author */
+.msg-group-avatar.placeholder {
+  visibility: hidden;
+}
+
+.msg-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 78%;
+}
+
+.msg-group.from-me .msg-stack {
+  align-items: flex-end;
+}
+
+/* ============================================================
+   Message Bubble — WhatsApp-style with subtle tail on first message
+   ============================================================ */
+.msg-bubble-wrapper {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+}
+
+.msg-bubble {
+  position: relative;
+  padding: 10px 14px 9px;
+  border-radius: 18px;
+  font-size: 14.5px;
+  line-height: 1.45;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+  transition: background-color 180ms ease;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+/* "from-them" message: white bubble, tail bottom-left on first */
+.msg-bubble.from-them {
+  background: white;
+  border: 1px solid rgb(226, 232, 240);
+  color: #0f172a;
+  border-bottom-left-radius: 6px;
+}
+
+/* "from-me" message: blue gradient bubble, tail bottom-right on first */
+.msg-bubble.from-me {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  border: 1px solid rgba(30, 64, 175, 0.4);
+  color: white;
+  border-bottom-right-radius: 6px;
+}
+
+/* Middle/last messages in a group: tighter corners, no tail */
+.msg-bubble.grouped {
+  border-radius: 14px;
+}
+.msg-bubble.from-them.grouped { border-bottom-left-radius: 14px; }
+.msg-bubble.from-me.grouped { border-bottom-right-radius: 14px; }
+
+/* Hover state — slightly elevated */
+.msg-bubble-wrapper:hover .msg-bubble {
+  box-shadow: 0 3px 8px rgba(15, 23, 42, 0.08);
+}
+
+/* ============================================================
+   Message Meta Row — author name + timestamp (Discord-style header)
+   ============================================================ */
+.msg-header {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 2px;
+  padding: 0 4px;
+}
+
+.msg-author {
+  font-size: 12px;
+  font-weight: 700;
+  color: #475569;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+.msg-time {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+/* ============================================================
+   Message Footer — read receipts + edited label
+   ============================================================ */
+.msg-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 2px;
+  padding: 0 4px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: #94a3b8;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+.msg-group.from-me .msg-footer {
+  justify-content: flex-end;
+}
+
+.msg-read-receipt {
+  display: inline-flex;
+  align-items: center;
+}
+
+.msg-read-receipt svg {
+  width: 14px;
+  height: 14px;
+}
+
+.msg-read-receipt.read {
+  color: #60a5fa;
+}
+
+.msg-read-receipt.delivered {
+  color: #94a3b8;
+}
+
+.msg-edited {
+  font-style: italic;
+  opacity: 0.7;
+  font-size: 10px;
+}
+
+/* ============================================================
+   Reply Quote — Telegram-style quoted message above bubble
+   ============================================================ */
+.reply-quote {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  background: rgba(15, 23, 42, 0.06);
+  border-left: 3px solid #3b82f6;
+  border-radius: 6px;
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: background 150ms ease;
+}
+
+.reply-quote:hover {
+  background: rgba(15, 23, 42, 0.1);
+}
+
+.msg-bubble.from-me .reply-quote {
+  background: rgba(255, 255, 255, 0.18);
+  border-left-color: rgba(255, 255, 255, 0.7);
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.reply-quote-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-quote-author {
+  font-weight: 700;
+  font-size: 11.5px;
+  margin-bottom: 1px;
+  color: #3b82f6;
+}
+
+.msg-bubble.from-me .reply-quote-author {
+  color: rgba(255, 255, 255, 0.95);
+}
+
+.reply-quote-text {
+  font-size: 12px;
+  opacity: 0.85;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 220px;
+}
+
+/* ============================================================
+   Reactions — Slack-style pill below message
+   ============================================================ */
+.reactions-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 0 4px;
+}
+
+.msg-group.from-me .reactions-row {
+  justify-content: flex-end;
+}
+
+.reaction-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 7px;
+  background: white;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  cursor: pointer;
+  transition: all 150ms ease;
+  font-family: "Inter", system-ui, sans-serif;
+  user-select: none;
+}
+
+.reaction-pill:hover {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  transform: translateY(-1px);
+}
+
+.reaction-pill.mine {
+  background: #eff6ff;
+  border-color: #3b82f6;
+  color: #1d4ed8;
+}
+
+.reaction-pill .reaction-emoji {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ============================================================
+   Hover Toolbar — Telegram/Slack-style action bar above message
+   ============================================================ */
+.msg-toolbar {
+  position: absolute;
+  top: -34px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: white;
+  border: 1px solid rgb(226, 232, 240);
+  border-radius: 10px;
+  box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.18);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: all 160ms ease;
+  z-index: 10;
+}
+
+.msg-group.from-me .msg-toolbar {
+  right: auto;
+  left: 6px;
+}
+
+.msg-bubble-wrapper:hover .msg-toolbar {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.msg-toolbar-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 140ms ease;
+  padding: 0;
+}
+
+.msg-toolbar-btn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.msg-toolbar-btn svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.2;
+}
+
+/* Reaction popover inside the toolbar (emoji picker mini) */
+.reaction-popover {
+  position: absolute;
+  bottom: 36px;
+  right: 0;
+  display: flex;
+  gap: 2px;
+  padding: 5px;
+  background: white;
+  border: 1px solid rgb(226, 232, 240);
+  border-radius: 12px;
+  box-shadow: 0 8px 20px -4px rgba(15, 23, 42, 0.25);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(4px);
+  transition: all 160ms ease;
+  z-index: 11;
+}
+
+.reaction-popover.open {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.reaction-popover button {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 17px;
+  line-height: 1;
+  transition: all 120ms ease;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reaction-popover button:hover {
+  background: #f1f5f9;
+  transform: scale(1.18);
+}
+
+/* ============================================================
+   Reply Preview Bar — above the input, shows the message being replied to
+   ============================================================ */
+.reply-preview-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #f1f5f9;
+  border: 1px solid rgb(226, 232, 240);
+  border-radius: 12px 12px 0 0;
+  border-bottom: none;
+}
+
+.reply-preview-bar .reply-quote {
+  flex: 1;
+  margin: 0;
+  background: white;
+  cursor: default;
+}
+
+.reply-preview-bar .reply-quote:hover {
+  background: white;
+}
+
+.reply-cancel-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #64748b;
+  transition: all 140ms ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.reply-cancel-btn:hover {
+  background: #e2e8f0;
+  color: #0f172a;
+}
+
+.reply-cancel-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ============================================================
+   Quick Reply Suggestions — Intercom-style chips for empty/first chat
+   ============================================================ */
+.quick-replies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.quick-reply-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: white;
+  border: 1.5px solid #2563eb;
+  color: #2563eb;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 180ms ease;
+  font-family: "Inter", system-ui, sans-serif;
+  box-shadow: 0 2px 6px rgba(37, 99, 235, 0.1);
+}
+
+.quick-reply-chip:hover {
+  background: #2563eb;
+  color: white;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(37, 99, 235, 0.25);
+}
+
+.quick-reply-chip svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ============================================================
+   Scroll-to-Bottom Button — appears when scrolled up
+   ============================================================ */
+.scroll-to-bottom-btn {
+  position: absolute;
+  bottom: 110px;
+  right: 24px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: white;
+  border: 1px solid rgb(226, 232, 240);
+  box-shadow: 0 6px 16px -2px rgba(15, 23, 42, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #475569;
+  transition: all 200ms ease;
+  z-index: 30;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px) scale(0.85);
+}
+
+.scroll-to-bottom-btn.visible {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0) scale(1);
+}
+
+.scroll-to-bottom-btn:hover {
+  background: #f8fafc;
+  color: #0f172a;
+  transform: translateY(-2px) scale(1.05);
+}
+
+.scroll-to-bottom-btn svg {
+  width: 20px;
+  height: 20px;
+  stroke-width: 2.4;
+}
+
+.scroll-to-bottom-btn .unread-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: #ef4444;
+  color: white;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid white;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+/* ============================================================
+   Connection Status Indicator — small pill in chat header
+   ============================================================ */
+.conn-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  color: #64748b;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+.conn-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.conn-status.online .conn-status-dot {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+  animation: conn-pulse 2s ease-in-out infinite;
+}
+
+.conn-status.offline .conn-status-dot {
+  background: #94a3b8;
+}
+
+@keyframes conn-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
+  50% { box-shadow: 0 0 0 4px rgba(16, 185, 129, 0); }
+}
+
+/* ============================================================
+   Animated message entrance — iMessage-style slide in
+   ============================================================ */
+.msg-enter {
+  animation: msg-slide-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes msg-slide-in {
+  0% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ============================================================
+   Empty State — friendly first-conversation screen
+   ============================================================ */
+.chat-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px 24px;
+  height: 100%;
+  font-family: "Inter", system-ui, sans-serif;
+}
+
+.chat-empty-icon {
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #dbeafe 0%, #bfdbfe 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  box-shadow: 0 8px 20px -4px rgba(37, 99, 235, 0.2);
+}
+
+.chat-empty-icon svg {
+  width: 32px;
+  height: 32px;
+  color: #2563eb;
+}
+
+.chat-empty-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: #1e293b;
+  margin-bottom: 6px;
+  font-family: "Space Grotesk", "Inter", sans-serif;
+  letter-spacing: -0.02em;
+}
+
+.chat-empty-text {
+  font-size: 14px;
+  color: #64748b;
+  max-width: 320px;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+/* ============================================================
+   Auto-resize textarea (no native resize handle, grows with content)
+   ============================================================ */
+.chat-textarea {
+  field-sizing: content;
+  min-height: 44px;
+  max-height: 140px;
+  resize: none;
+}
+
+/* ============================================================
+   Thread list item — minor refinements
+   ============================================================ */
+.thread-item {
+  position: relative;
+  overflow: hidden;
+}
+
+.thread-item.unread::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  transform: translateY(-50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+}
+
+/* ============================================================
+   Mobile responsive tweaks
+   ============================================================ */
+@media (max-width: 767px) {
+  .msg-stack {
+    max-width: 85%;
+  }
+
+  .scroll-to-bottom-btn {
+    bottom: 100px;
+    right: 16px;
+    width: 40px;
+    height: 40px;
+  }
+
+  .msg-toolbar {
+    display: none; /* hover doesn't work on touch — rely on long-press fallback */
+  }
+
+  .day-separator {
+    margin: 16px 0 12px;
+  }
+}

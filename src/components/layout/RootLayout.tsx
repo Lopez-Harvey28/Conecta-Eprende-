@@ -1,25 +1,9 @@
-import { Outlet, Link } from 'react-router-dom';
-import { Search } from 'lucide-react';
+import React, { useEffect, useState, type ErrorInfo, type ReactNode } from "react";
+import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
+import { BriefcaseBusiness, ChevronDown, Flag, Home, Menu, MessageCircle, Search, Settings, ShieldCheck, Store, UserRound, X } from "lucide-react";
+import { useMvpStore } from "../../stores/mvp-store";
 
-export default function RootLayout() {
-  return (
-    <div className="flex flex-col h-screen h-[100dvh] overflow-hidden text-slate-800 font-sans bg-slate-50">
-      <header className="shrink-0 z-50 flex items-center justify-between px-6 py-4 bg-white border-b border-slate-200">
-        <Link to="/" className="text-xl font-bold tracking-tight text-blue-600 flex items-center gap-2">
-          <span>Conecta Emprende AI</span>
-        </Link>
-        <nav className="flex space-x-6">
-          <Link to="/buscar" className="flex items-center gap-2 px-4 py-2 text-sm font-medium transition-colors rounded-full hover:bg-slate-100">
-            <Search className="w-4 h-4" /> Buscar Proveedores
-          </Link>
-          <Link to="/dashboard/cotizaciones" className="hidden md:block px-4 py-2 text-sm font-medium text-white transition-opacity bg-blue-600 rounded-full hover:opacity-90">
-            Ingresar
-          </Link>
-        </nav>
-      </header>
-      <main className="flex-1 relative overflow-hidden">
-        <Outlet />
-      </main>
-    </div>
-  );
-}
+const nav=[{to:"/",label:"Inicio",icon:Home,end:true},{to:"/search",label:"Buscar",icon:Search},{to:"/requests",label:"Conversaciones",icon:MessageCircle},{to:"/formalization",label:"Formalización",icon:BriefcaseBusiness},{to:"/me",label:"Mi perfil",icon:UserRound}];
+class RouteErrorBoundary extends React.Component<{children:ReactNode},{error:Error|null}>{declare readonly props:{children:ReactNode};state:{error:Error|null}={error:null};static getDerivedStateFromError(error:Error){return{error}}componentDidCatch(error:Error,info:ErrorInfo){console.error("Route render failed",error,info)}render(){if(this.state.error)return <section className="content-page"><div className="empty-state"><h1>No pudimos mostrar esta página</h1><p>{this.state.error.message}</p><Link className="button primary" to="/">Volver al inicio</Link></div></section>;return this.props.children}}
+
+export default function RootLayout(){const [open,setOpen]=useState(false);const [account,setAccount]=useState(false);const toast=useMvpStore(state=>state.toast);const setToast=useMvpStore(state=>state.setToast);const current=useMvpStore(state=>state.currentUser);const requests=useMvpStore(state=>state.requests);const location=useLocation();const unread=requests.reduce((sum,request)=>sum+request.unreadByProvider,0);useEffect(()=>{if(!toast)return;const timer=setTimeout(()=>setToast(null),3500);return()=>clearTimeout(timer)},[toast,setToast]);return <div className="app-shell"><header className="topbar"><Link to="/" className="brand" aria-label="Conecta Emprende, inicio"><span className="brand-mark"><Store/></span><span>Conecta <strong>Emprende</strong></span></Link><nav className={open?"main-nav open":"main-nav"}>{nav.map(({to,label,icon:Icon,end})=><NavLink onClick={()=>setOpen(false)} end={end} to={to} key={to} className={({isActive})=>isActive?"active":""}><Icon/>{label}{to==="/requests"&&unread>0&&<span className="nav-unread">{unread}</span>}</NavLink>)}</nav><div className="account-wrap"><button className="account-button" onClick={()=>setAccount(!account)}><span>MR</span><span className="account-copy"><strong>{current.name}</strong><small>Proveedor</small></span><ChevronDown/></button>{account&&<div className="account-menu"><Link to="/settings/security" onClick={()=>setAccount(false)}><Settings/> Configuración y seguridad</Link>{current.role==="ADMIN"&&<Link to="/admin/reports" onClick={()=>setAccount(false)}><Flag/> Reportes</Link>}<Link to="/trust" onClick={()=>setAccount(false)}><ShieldCheck/> Cómo funciona la confianza</Link><button>Cerrar sesión</button></div>}</div><button className="menu-button" onClick={()=>setOpen(!open)} aria-label="Abrir navegación">{open?<X/>:<Menu/>}</button></header><main className="app-content"><RouteErrorBoundary key={location.pathname}><Outlet/></RouteErrorBoundary></main>{toast&&<div className="toast" role="status"><ShieldCheck/>{toast}</div>}</div>}

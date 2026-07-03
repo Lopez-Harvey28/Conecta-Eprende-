@@ -1,20 +1,31 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# Conecta Emprende AI
 
-# Run and deploy your AI Studio app
+MVP para conectar personas emprendedoras, MIPYMES y proveedores de Nicaragua mediante búsqueda en lenguaje natural, señales de confianza y solicitudes de cotización verificables.
 
-This contains everything you need to run your app locally.
+## Ejecutar
 
-View your app in AI Studio: https://ai.studio/apps/2dd4cb1c-3425-42cf-85e8-aae4619ea5ea
+```bash
+npm install
+npm run dev
+```
 
-## Run Locally
+La aplicación queda disponible en `http://localhost:3000`.
 
-**Prerequisites:**  Node.js
+## Verificación
 
+```bash
+npm run lint
+npm run build
+```
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Flujo de demostración
+
+1. Buscar `Necesito empaques ecológicos en León que sean baratos`.
+2. Abrir un perfil y revisar verificación, confianza, medallas y formalización.
+3. Crear una solicitud de cotización.
+4. Responder y confirmar el trabajo desde ambas partes.
+5. Publicar una reseña desbloqueada por la finalización bilateral.
+6. Editar el perfil público desde Mi perfil.
+7. Enviar un reporte y revisarlo desde Administración.
+
+Los datos de demostración persisten en `localStorage`. 2FA, carga de archivos, importación/exportación e integraciones gubernamentales se muestran honestamente como fuera del alcance del MVP.

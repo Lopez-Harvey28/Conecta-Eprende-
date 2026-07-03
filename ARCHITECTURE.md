@@ -34,3 +34,20 @@
 3. Backend (Vite + Express) y base de datos (Prisma).
 4. Cotizaciones y formalización.
 5. Capa AI (Groq/Gemini).
+
+## 6. Arquitectura del MVP conectado
+
+- `src/lib/mvp-data.ts`: contrato de dominio y semillas realistas para 50 proveedores, solicitudes, reseñas y reportes.
+- `src/stores/mvp-store.ts`: estado persistente de demostración con reglas de solicitud, confirmación bilateral, reseñas y revisión humana.
+- `src/components/mvp/Ui.tsx`: vocabulario visual compartido para confianza, verificación, formalización, estados y limitaciones.
+- `src/components/map/MvpProviderMap.tsx`: mapa Leaflet sincronizado con resultados, selección por toque, enfoque programático y vista previa persistente del proveedor.
+- `src/pages/*`: verticales de búsqueda, perfil público, cotización, seguimiento, cuenta, formalización, confianza, seguridad y administración.
+- `server.ts`: APIs existentes y servidor Vite/Express. Desarrollo usa HMR aunque exista un build previo; producción se activa explícitamente con `NODE_ENV=production`.
+
+## 7. Decisiones y límites
+
+- El flujo crítico usa un store persistente en navegador para que la demo funcione sin PostgreSQL ni servicios externos.
+- La extracción de intención tiene fallback local determinista y el ranking aplica 35% confianza, 25% cercanía, 20% precio y 20% disponibilidad.
+- Las reseñas requieren solicitud `COMPLETED`, y este estado requiere confirmación de cliente y proveedor.
+- Reportes se almacenan como `PENDING_REVIEW` y solo una persona administradora cambia su estado.
+- La siguiente expansión recomendada es mover el mismo contrato a Prisma/PostgreSQL, añadir autenticación real y pruebas de integración de API.

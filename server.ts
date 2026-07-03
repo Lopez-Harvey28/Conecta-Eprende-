@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
-import { prisma } from "./src/lib/db";
+import fs from "fs";
+import { createServer as createViteServer, type ViteDevServer } from "vite";
 import { extractIntent } from "./src/lib/ai/extract-intent";
 import { generateQuoteDraft } from "./src/lib/ai/quote-draft";
 import { generateEnhancedBio } from "./src/lib/ai/enhance-bio";
@@ -16,9 +16,11 @@ import {
 
 import {
   providers,
+  catalogItems,
   quotes,
   formalizations,
-  updateFormalizationStep
+  updateFormalizationStep,
+  getFullProvider,
 } from "./src/lib/memory-db";
 
 async function startServer() {
@@ -41,34 +43,42 @@ async function startServer() {
         return res.status(400).json({ error: "Parámetros de búsqueda inválidos", details: parsed.error.issues });
       }
       const { q, city } = parsed.data;
-      
-      const filters: any = {};
-      if (city) {
-        filters.city = city.toUpperCase();
-      }
-      if (q) {
-        filters.OR = [
-          { displayName: { contains: q, mode: 'insensitive' } },
-          { category: { contains: q, mode: 'insensitive' } }
-        ];
-      }
 
-      // Map memory providers slightly adjusting their properties to match Prisma types where requested
+      // Normalize `q` to a single string (defensive: handles array case from accidental duplicate params)
+      const queryStr = Array.isArray(q) ? q[0] : q;
+
       const results = providers.filter(p => {
         let match = true;
         if (city) {
           match = match && p.city.toUpperCase() === city.toUpperCase();
         }
-        if (q) {
-          const lowerQ = q.toLowerCase();
-          match = match && (p.displayName.toLowerCase().includes(lowerQ) || p.category.toLowerCase().includes(lowerQ));
+        if (queryStr) {
+          const lowerQ = queryStr.toLowerCase();
+          // Match across multiple words; provider matches if ANY word appears in
+          // displayName/category OR in any of its catalog items (title/category/
+          // subcategory/itemType/description) — per spec §11.1 the algorithm must
+          // search inside the catalog, not just the provider name.
+          const words = lowerQ.split(/\s+/).filter(Boolean);
+          const providerText = (p.displayName + " " + p.category + " " + p.mainCategory).toLowerCase();
+          const providerMatch = words.some(w => providerText.includes(w));
+          const catalogMatch = words.some(w =>
+            catalogItems.some(c => {
+              if (c.providerId !== p.id) return false;
+              const cText = (
+                c.title + " " + c.category + " " + c.subcategory + " " +
+                c.itemType + " " + c.description
+              ).toLowerCase();
+              return cText.includes(w);
+            })
+          );
+          match = match && (providerMatch || catalogMatch);
         }
         return match;
       });
 
       res.json({ success: true, data: results });
     } catch (error) {
-      res.json({ success: false, error: "Internal Error" });
+      res.status(500).json({ success: false, error: "Internal Error" });
     }
   });
 
@@ -82,58 +92,77 @@ async function startServer() {
       const { query } = parsed.data;
 
       const intent = await extractIntent(query);
-      
-      const filters: any = {};
-      if (intent.city) {
-        filters.city = intent.city.toUpperCase().trim();
-      }
-      if (intent.category) {
-        filters.category = { contains: intent.category, mode: 'insensitive' };
-      } else if (intent.keywords && intent.keywords.length > 0) {
-        // Fallback or broader search
-        filters.OR = [
-          { displayName: { contains: intent.keywords[0], mode: 'insensitive' } },
-          { category: { contains: intent.keywords[0], mode: 'insensitive' } }
-        ];
-      }
 
       let results = providers;
       if (intent.city) {
-         results = results.filter(p => p.city.toUpperCase() === intent.city!.toUpperCase());
+         results = results.filter(p => p.city.toUpperCase() === intent.city!.toUpperCase().trim());
       }
       if (intent.category) {
-         results = results.filter(p => p.category.toLowerCase().includes(intent.category!.toLowerCase()));
+         const cat = intent.category.toLowerCase();
+         results = results.filter(p => {
+           // Match against the provider's own categories...
+           const providerCats = (p.category + " " + p.mainCategory).toLowerCase();
+           if (providerCats.includes(cat)) return true;
+           // ...OR any catalog item whose category/subcategory/itemType matches.
+           // (Spec §21.2: the algorithm searches catalog_items.category etc.)
+           return catalogItems.some(c => {
+             if (c.providerId !== p.id) return false;
+             return (
+               c.category.toLowerCase().includes(cat) ||
+               c.subcategory.toLowerCase().includes(cat) ||
+               c.itemType.toLowerCase().includes(cat)
+             );
+           });
+         });
       } else if (intent.keywords && intent.keywords.length > 0) {
-         const kw = intent.keywords[0].toLowerCase();
-         results = results.filter(p => p.displayName.toLowerCase().includes(kw) || p.category.toLowerCase().includes(kw));
+         // Use ALL keywords (not just the first) so multi-word queries can still match.
+         const kws = intent.keywords.map(k => k.toLowerCase()).filter(Boolean);
+         results = results.filter(p => {
+           const haystack = (p.displayName + " " + p.category + " " + p.mainCategory).toLowerCase();
+           const providerHit = kws.some(k => haystack.includes(k));
+           if (providerHit) return true;
+           // Also match keywords against the provider's catalog (title/description/etc.)
+           return catalogItems.some(c => {
+             if (c.providerId !== p.id) return false;
+             const cText = (
+               c.title + " " + c.category + " " + c.subcategory + " " +
+               c.itemType + " " + c.description
+             ).toLowerCase();
+             return kws.some(k => cText.includes(k));
+           });
+         });
       }
 
       res.json({ success: true, intent, data: results });
 
     } catch (error) {
-      res.json({ success: false, error: "Internal Error" });
+      res.status(500).json({ success: false, error: "Internal Error" });
     }
   });
 
-  // GET Provider by ID
+  // GET Provider by id OR slug (spec §26.1) — returns the full structured
+  // public profile payload: provider + catalog (with equipment join) + photos
+  // + medals + verified reviews + computed average review score.
   app.get("/api/providers/:id", async (req, res) => {
     try {
-      const provider = providers.find(p => p.id === req.params.id);
-      if (!provider) return res.status(404).json({ success: false, message: "No encontrado" });
-      
-      res.json({ success: true, data: provider });
+      const full = getFullProvider(req.params.id);
+      if (!full) return res.status(404).json({ success: false, message: "No encontrado" });
+
+      res.json({ success: true, data: full });
     } catch (error) {
        res.status(500).json({ success: false });
     }
   });
 
-  // GET Quotes
+  // GET Quotes — optionally filtered by ?providerId= (defaults to "1" to
+  // preserve the legacy QuotesPage contract which lists the current provider).
   app.get("/api/quotes", async (req, res) => {
     try {
-      const activeQuotes = quotes.filter(q => q.providerId === "1");
+      const providerId = (req.query.providerId as string) || "1";
+      const activeQuotes = quotes.filter(q => q.providerId === providerId);
       res.json({ success: true, data: activeQuotes });
     } catch (error) {
-       res.json({ success: false });
+       res.status(500).json({ success: false, error: "Internal Error" });
     }
   });
 
@@ -157,16 +186,18 @@ async function startServer() {
   app.post("/api/quotes", async (req, res) => {
     try {
       const parsed = quoteRequestSchema.safeParse(req.body);
-      
+
       if (!parsed.success) {
         return res.status(400).json({ error: "Faltan campos obligatorios", details: parsed.error.issues });
       }
-      
-      const { providerId, subject, body } = parsed.data;
+
+      const { providerId, subject, body, catalogItemId } = parsed.data;
 
       const newQuote = {
         id: "t" + Date.now(),
         providerId: providerId,
+        // Persist the catalog item the request is about (spec §20.3).
+        catalogItemId: catalogItemId || null,
         subject: subject || "Solicitud de cotización",
         clientName: "Cliente Nuevo",
         clientAvatar: "CN",
@@ -176,11 +207,11 @@ async function startServer() {
           { id: "m" + Date.now(), author: "client", text: body, time: "Ahora" }
         ]
       };
-      
+
       quotes.unshift(newQuote);
       res.json({ success: true, data: newQuote });
     } catch (error: any) {
-      res.json({ success: false, error: "Internal Error" });
+      res.status(500).json({ success: false, error: "Internal Error" });
     }
   });
 
@@ -283,22 +314,52 @@ async function startServer() {
   });
 
   // === VITE MIDDLEWARE OR STATIC SERVING ===
-  if (process.env.NODE_ENV !== "production") {
-    // Development mode via Vite SSR middleware
+  // Production is explicit. `npm run dev` must keep Vite/HMR active even when a
+  // previous production build exists in dist.
+  const distPath = path.join(process.cwd(), 'dist');
+  const distIndexHtml = path.join(distPath, 'index.html');
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  let vite: ViteDevServer | null = null;
+  if (!isProduction) {
+    // Development mode via Vite middleware
     console.log("Setting up Vite dev server...");
-    const vite = await createViteServer({
+    vite = await createViteServer({
       server: { middlewareMode: true },
-      appType: "spa",
+      appType: "custom", // we handle SPA fallback ourselves below
     });
     app.use(vite.middlewares);
   } else {
-    // Production Mode
-    const distPath = path.join(process.cwd(), 'dist');
+    // Production Mode - serve static built assets
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
   }
+
+  // SPA fallback: serve index.html for any non-API GET request that wasn't matched above.
+  // Required for client-side routes like /buscar, /dashboard/*, /proveedor/:id.
+  // NOTE: Express 4 (path-to-regexp 0.1.x) does NOT support '*all' wildcard syntax
+  // (that is Express 5 only). The correct wildcard here is '*'.
+  app.get('*', async (req, res, next) => {
+    // Skip API routes entirely (they should have responded already, but be defensive)
+    if (req.path.startsWith('/api/')) {
+      return res.status(404).json({ success: false, error: 'Not found' });
+    }
+    try {
+      if (vite) {
+        // Dev: read source index.html and let Vite transform it (injects HMR client, etc.)
+        const template = fs.readFileSync(
+          path.resolve(process.cwd(), 'index.html'),
+          'utf-8'
+        );
+        const html = await vite.transformIndexHtml(req.url, template);
+        res.status(200).set({ 'Content-Type': 'text/html' }).end(html);
+      } else {
+        // Prod: send the prebuilt index.html
+        res.sendFile(distIndexHtml);
+      }
+    } catch (err) {
+      next(err);
+    }
+  });
 
   // Start the actual express server on host 0.0.0.0
   app.listen(PORT, "0.0.0.0", () => {

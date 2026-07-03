@@ -9,11 +9,19 @@ export const quoteRequestSchema = z.object({
   providerId: z.string().min(1, "providerId es obligatorio"),
   subject: z.string().optional(),
   body: z.string().min(10, "El mensaje debe tener al menos 10 caracteres"),
+  // Optional catalog item the request is about (spec §10.3 / §20.3):
+  // "Si el usuario pregunta por un producto específico, la solicitud debe
+  //  guardar el catalog_item_id".
+  catalogItemId: z.string().optional(),
 });
 
 export const searchProviderSchema = z.object({
-  q: z.string().optional(),
-  city: z.string().optional(),
+  // `q` may arrive as a string OR as an array of strings if the client accidentally
+  // appends the param twice (e.g. ?q=userquery&q=category). Coerce to a single string.
+  q: z.union([z.string(), z.array(z.string())]).optional()
+    .transform(v => Array.isArray(v) ? v[0] : v),
+  city: z.union([z.string(), z.array(z.string())]).optional()
+    .transform(v => Array.isArray(v) ? v[0] : v),
 });
 
 export const aiSearchProviderSchema = z.object({

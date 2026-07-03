@@ -1,236 +1,29 @@
-import { useSearchStore } from "../stores/search-store";
-import ProviderMap from "../components/map/ProviderMap";
-import { Search, Zap, MapPin, Sparkles, Filter, AlertCircle } from "lucide-react";
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { motion, AnimatePresence } from "motion/react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { CalendarCheck, List, Map, MapPin, Search, SlidersHorizontal, Sparkles } from "lucide-react";
+import MvpProviderMap, { type SearchMapProvider } from "../components/map/MvpProviderMap";
+import { CATEGORY_OPTIONS, CREATIVE_CITIES, availabilityLabel, formalizationLabel, priceLabel, type CreativeCity, type PriceRange } from "../lib/mvp-data";
+import { useMvpStore } from "../stores/mvp-store";
+import { AvailabilityBadge, EmptyState, FormalizationBadge, PriceBadge, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
 
-interface Provider {
-  id: string;
-  displayName: string;
-  category: string;
-  city: string;
-  lat: number;
-  lng: number;
-  score: number;
-}
+const aliases: Record<string,string> = { empaque:"Empaques ecológicos", empaques:"Empaques ecológicos", logo:"Diseño gráfico", diseño:"Diseño gráfico", camiseta:"Bordado y serigrafía", bordada:"Bordado y serigrafía", café:"Café y alimentos", foto:"Fotografía", marketing:"Marketing digital", muebles:"Muebles y carpintería", web:"Servicios tecnológicos", agrícola:"Insumos agrícolas" };
+const norm=(value:string)=>value.normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+function extractIntent(query:string) { const normalized=norm(query); const city=CREATIVE_CITIES.find(item=>normalized.includes(norm(item))) || null; const alias=Object.keys(aliases).find(item=>normalized.includes(norm(item))); const category=alias?aliases[alias]:null; const budget:PriceRange|null=/barato|economico|accesible/.test(normalized)?"LOW":/premium|exportacion|alta calidad/.test(normalized)?"HIGH":/profesional|calidad/.test(normalized)?"MEDIUM":null; return { city,category,budget,urgency:/urgente|hoy|rapido/.test(normalized)?"URGENTE":"NORMAL",keywords:normalized.split(/\s+/).filter(word=>word.length>3) }; }
 
-export default function SearchPage() {
-  const { query, setQuery, city, setCity } = useSearchStore();
-  const [localQuery, setLocalQuery] = useState(query);
-  const [isAiSearching, setIsAiSearching] = useState(false);
-  const [aiIntent, setAiIntent] = useState<any>(null);
+export default function SearchPage(){
+  const providers=useMvpStore(state=>state.providers); const navigate=useNavigate(); const [params,setParams]=useSearchParams();
+  const [query,setQuery]=useState(params.get("query")||""); const [city,setCity]=useState(params.get("city")||""); const [category,setCategory]=useState(""); const [price,setPrice]=useState(""); const [available,setAvailable]=useState(false); const [formal,setFormal]=useState(""); const [trust,setTrust]=useState(0);
+  const [hoveredId,setHoveredId]=useState<string|null>(null); const [selectedId,setSelectedId]=useState<string|null>(null); const [mobileView,setMobileView]=useState<"list"|"map">("list");
+  const cardRefs=useRef<Record<string,HTMLElement|null>>({});
+  const intent=useMemo(()=>extractIntent(query),[query]);
+  const results=useMemo(()=>providers.map(provider=>{ const cityTarget=(city||intent.city) as CreativeCity|null; const categoryTarget=category||intent.category; const text=norm(`${provider.publicName} ${provider.category} ${provider.description} ${provider.services.join(" ")}`); const keywordHit=!query||intent.keywords.some(keyword=>text.includes(keyword))||!!categoryTarget; const match=keywordHit&&(!cityTarget||provider.city===cityTarget)&&(!categoryTarget||norm(provider.category).includes(norm(categoryTarget)))&&(!price||provider.priceRange===price)&&(!available||provider.availability==="AVAILABLE")&&(!formal||provider.formalizationStatus===formal)&&provider.trustScore>=trust; const proximity=cityTarget?(provider.city===cityTarget?100:25):70; const priceMatch=intent.budget?(provider.priceRange===intent.budget?100:40):70; const availabilityScore=provider.availability==="AVAILABLE"?100:provider.availability==="BUSY"?50:0; return {...provider,match,rank:.35*provider.trustScore+.25*proximity+.20*priceMatch+.20*availabilityScore}; }).filter(provider=>provider.match).sort((a,b)=>b.rank-a.rank),[providers,query,city,category,price,available,formal,trust,intent]);
+  const mapProviders=useMemo<SearchMapProvider[]>(()=>results.map(provider=>({ id:provider.id,publicName:provider.publicName,category:provider.category,city:provider.city,lat:provider.lat,lng:provider.lng,trustScore:provider.trustScore,availabilityLabel:availabilityLabel[provider.availability],priceLabel:priceLabel[provider.priceRange],verificationLabel:{UNVERIFIED:"Sin verificar",PHONE:"Teléfono verificado",COMPLETE:"Perfil verificado"}[provider.verificationLevel],formalizationLabel:formalizationLabel[provider.formalizationStatus],description:provider.description,image:provider.portfolioImages[0]||"" })),[results]);
+  useEffect(()=>{if(selectedId)cardRefs.current[selectedId]?.scrollIntoView({behavior:"smooth",block:"center"});},[selectedId]);
+  const showInList=(id:string)=>{setSelectedId(id);setMobileView("list");window.requestAnimationFrame(()=>cardRefs.current[id]?.scrollIntoView({behavior:"smooth",block:"center"}));};
 
-  // Normal Sync back to store safely
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (localQuery !== query) {
-         setQuery(localQuery);
-      }
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [localQuery, query, setQuery]);
-
-  // Fetch Providers via API
-  const { data: providers = [], isLoading, isError } = useQuery({
-    queryKey: ['providers', query, city, aiIntent?.category],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (query) params.append('q', query);
-      if (city) params.append('city', city);
-      if (aiIntent?.category) params.append('q', aiIntent.category); // Use AI intent category if exists
-      const res = await fetch(`/api/providers/search?${params.toString()}`);
-      if (!res.ok) throw new Error("Search failed");
-      const json = await res.json();
-      return json.data as Provider[];
-    }
-  });
-
-  const handleAiSearch = async () => {
-    if (!localQuery.trim()) return;
-    setIsAiSearching(true);
-    setAiIntent(null);
-    try {
-      const res = await fetch('/api/providers/ai-search', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query: localQuery })
-      });
-      const data = await res.json();
-      if (data.success && data.intent) {
-        setAiIntent(data.intent);
-        if (data.intent.city) {
-          // Normalize city name
-          const searchedCityLower = data.intent.city.toLowerCase().trim();
-          const mappedCity = ["Managua", "León", "Granada", "Masaya", "Estelí", "Matagalpa", "Bluefields", "Juigalpa", "Nagarote", "San Juan de Oriente"]
-            .find(c => c.toLowerCase() === searchedCityLower);
-            
-          if (mappedCity) {
-            setCity(mappedCity);
-          } else {
-            setCity(data.intent.city); // If not perfectly mapped, use the string AI provided to let local search filter try.
-          }
-        } else {
-          setCity(null);
-        }
-      }
-    } catch (e) {
-      console.warn("AI search failed", e);
-    } finally {
-      setIsAiSearching(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col-reverse md:flex-row h-full w-full bg-slate-50 relative overflow-hidden">
-      
-      {/* Left Sidebar - Search & List */}
-      <motion.div 
-        initial={{ x: -100, opacity: 0 }}
-        animate={{ x: 0, opacity: 1 }}
-        transition={{ type: "spring", stiffness: 200, damping: 25 }}
-        className="w-full md:w-[450px] lg:w-[480px] flex flex-col bg-white border-t md:border-t-0 border-slate-200 z-10 relative shadow-[10px_0_40px_-10px_rgba(0,0,0,0.1)] shrink-0 h-[65%] md:h-full md:rounded-tr-3xl md:border-r"
-      >
-        <div className="px-6 md:px-8 py-6 border-b border-slate-100 shrink-0 bg-white md:rounded-tr-3xl relative z-10">
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">Buscar</h2>
-            <button className="w-10 h-10 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors">
-               <Filter className="w-4 h-4" />
-            </button>
-          </div>
-          
-          <div className="relative mb-5 flex gap-3">
-            <div className="relative flex-1 group">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400 group-focus-within:text-blue-500 transition-colors" />
-              <input 
-                type="text" 
-                placeholder="Ej: diseñador en managua..." 
-                value={localQuery}
-                onChange={(e) => setLocalQuery(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAiSearch()}
-                className="w-full pl-12 pr-4 py-4 bg-slate-50 border border-slate-200 rounded-2xl focus:outline-none focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white transition-all font-medium text-[15px] shadow-sm"
-              />
-            </div>
-            <button 
-              onClick={handleAiSearch}
-              disabled={isAiSearching || !localQuery.trim()}
-              title="Búsqueda Inteligente"
-              className="px-5 py-4 bg-purple-600 text-white shadow-md hover:shadow-purple-600/30 hover:bg-purple-700 rounded-2xl transition-all disabled:opacity-50 active:scale-95"
-            >
-               <Zap className={`w-5 h-5 ${isAiSearching ? 'animate-pulse' : ''}`} />
-            </button>
-          </div>
-
-          <AnimatePresence>
-            {aiIntent && (
-              <motion.div 
-                initial={{ opacity: 0, height: 0, y: -10 }}
-                animate={{ opacity: 1, height: 'auto', y: 0 }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mb-5 overflow-hidden"
-              >
-                <div className="text-xs font-medium bg-gradient-to-br from-purple-50 to-indigo-50 p-4 rounded-xl border border-purple-100 flex items-start gap-3 shadow-inner">
-                  <div className="bg-purple-200/50 p-1.5 rounded-lg shrink-0 mt-0.5">
-                    <Sparkles className="w-4 h-4 text-purple-700" />
-                  </div>
-                  <div className="space-y-1">
-                    <span className="font-bold text-slate-800 text-[13px] tracking-tight">Intención Detectada IA:</span>
-                    <ul className="text-slate-600 text-[13px]">
-                      {aiIntent.category && <li><span className="opacity-70">Buscas:</span> <strong className="text-slate-800">{aiIntent.category}</strong></li>}
-                      {aiIntent.city && <li><span className="opacity-70">Ubicación:</span> <strong className="text-slate-800">{aiIntent.city}</strong></li>}
-                    </ul>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-hide -mx-2 px-2 snap-x">
-            {["Managua", "León", "Granada", "Estelí"].map(c => (
-              <button 
-                key={c}
-                onClick={() => setCity(city === c ? null : c)}
-                className={`px-4 py-2 text-sm font-bold rounded-xl border transition-all shrink-0 snap-start ${
-                  city === c 
-                    ? 'bg-slate-900 border-slate-900 text-white shadow-md' 
-                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:border-slate-300'
-                }`}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-6 md:px-8 py-6 space-y-4 bg-slate-50 relative">
-          {isAiSearching || isLoading ? (
-             <motion.div 
-               initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-               className="py-12 flex flex-col items-center justify-center text-center"
-             >
-                <div className="relative w-16 h-16 flex items-center justify-center mb-6">
-                  <div className="absolute inset-0 bg-purple-200 rounded-full animate-ping opacity-50"></div>
-                  <div className="relative bg-white rounded-full p-4 shadow-sm border border-slate-100 z-10">
-                    <Zap className="w-8 h-8 text-purple-600 animate-pulse" />
-                  </div>
-                </div>
-                <h3 className="text-lg font-extrabold text-slate-800 tracking-tight mb-2">Buscando Proveedores</h3>
-                <p className="text-[15px] font-medium text-slate-500 max-w-[200px] leading-relaxed">Conectando con la red local...</p>
-             </motion.div>
-          ) : providers.length === 0 ? (
-            <div className="py-12 text-center text-slate-500">
-               <div className="w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                 <Search className="w-6 h-6 text-slate-300" />
-               </div>
-               <p className="font-semibold text-[15px]">No se encontraron proveedores.</p>
-               <p className="text-sm mt-1">Intenta ajustando los términos.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="text-xs font-bold text-slate-400 uppercase tracking-widest pl-1 mb-2">
-                 {providers.length} proveedores encontrados
-              </div>
-              {providers.map((p, index) => (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  key={p.id}
-                >
-                  <Link to={`/proveedor/${p.id}`} className="block p-5 bg-white border border-slate-200 rounded-[1.25rem] shadow-sm hover:shadow-xl hover:-translate-y-1 focus:ring-4 focus:ring-blue-500/20 transition-all cursor-pointer group outline-none overflow-hidden relative">
-                    <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-50 to-indigo-50/20 translate-x-12 -translate-y-8 rounded-full blur-2xl group-hover:bg-blue-100/40 transition-colors"></div>
-                    
-                    <div className="relative z-10">
-                      <div className="flex justify-between items-start mb-3">
-                        <h3 className="font-extrabold text-slate-900 text-lg leading-tight group-hover:text-blue-600 transition-colors">{p.displayName}</h3>
-                        <span className="bg-gradient-to-br from-green-50 to-emerald-100 border border-green-200/50 text-green-700 px-3 py-1 rounded-full text-xs font-extrabold whitespace-nowrap shadow-sm">
-                          {p.score} Trust
-                        </span>
-                      </div>
-                      
-                      <div className="flex items-center gap-4 mt-4">
-                         <div className="text-[13px] font-bold text-slate-600 bg-slate-100 px-3 py-1 rounded-lg inline-flex">
-                           {p.category}
-                         </div>
-                         <div className="text-[13px] font-semibold text-slate-400 flex items-center gap-1.5">
-                           <MapPin className="w-3.5 h-3.5" />
-                           {p.city}
-                         </div>
-                      </div>
-                    </div>
-                  </Link>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </div>
-      </motion.div>
-
-      {/* Right Content - Map */}
-      <div className="flex-1 bg-slate-200 relative min-h-0 md:min-h-full">
-        <ProviderMap providers={providers} focusCity={city} />
-      </div>
-    </div>
-  );
+  return <div className="search-page"><header className="search-toolbar"><form onSubmit={event=>{event.preventDefault();setParams(query?{query}:{});}}><Search/><input value={query} onChange={event=>setQuery(event.target.value)} placeholder="¿Qué proveedor necesitás?" aria-label="Buscar proveedores"/><button>Buscar</button></form><div className="mobile-view-switch" aria-label="Vista de resultados"><button className={mobileView==="list"?"active":""} onClick={()=>setMobileView("list")}><List/> Lista</button><button className={mobileView==="map"?"active":""} onClick={()=>setMobileView("map")}><Map/> Mapa</button></div></header>
+    <div className="search-layout"><aside className="filters"><h2><SlidersHorizontal/> Afinar resultados</h2><label>Ciudad<select value={city} onChange={event=>setCity(event.target.value)}><option value="">Todas</option>{CREATIVE_CITIES.map(item=><option key={item}>{item}</option>)}</select></label><label>Categoría<select value={category} onChange={event=>setCategory(event.target.value)}><option value="">Todas</option>{CATEGORY_OPTIONS.map(item=><option key={item}>{item}</option>)}</select></label><label>Precio<select value={price} onChange={event=>setPrice(event.target.value)}><option value="">Cualquier rango</option>{Object.entries(priceLabel).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>Formalización<select value={formal} onChange={event=>setFormal(event.target.value)}><option value="">Cualquier estado</option>{Object.entries(formalizationLabel).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>Confianza mínima <strong>{trust}</strong><input type="range" min="0" max="90" step="10" value={trust} onChange={event=>setTrust(Number(event.target.value))}/></label><label className="check"><input type="checkbox" checked={available} onChange={event=>setAvailable(event.target.checked)}/><CalendarCheck/> Disponible ahora</label></aside>
+      <main className={`results ${mobileView==="list"?"mobile-active":""}`}><section className="intent-summary"><Sparkles/><div><strong>Entendimos tu búsqueda</strong><span>Categoría: {intent.category||"abierta"} · Ciudad: {intent.city||"cualquiera"} · Presupuesto: {intent.budget?priceLabel[intent.budget]:"sin definir"}</span></div></section><div className="results-heading"><div><h1>{results.length} proveedores para comparar</h1><p>Ordenados por confianza, cercanía, precio y disponibilidad.</p></div></div>
+        {results.length===0?<EmptyState icon={<Search/>} title="No encontramos proveedores exactos">Probá con otra ciudad, categoría o rango de precio.</EmptyState>:<div className="provider-list">{results.map(provider=><article ref={node=>{cardRefs.current[provider.id]=node;}} className={`provider-result ${hoveredId===provider.id||selectedId===provider.id?"map-linked-active":""}`} key={provider.id} onMouseEnter={()=>setHoveredId(provider.id)} onMouseLeave={()=>setHoveredId(null)} onClick={()=>setSelectedId(provider.id)}><img src={provider.portfolioImages[0]} alt=""/><div className="provider-body"><div className="provider-title"><div><span>{provider.category}</span><h2>{provider.publicName}</h2></div><TrustBadge score={provider.trustScore}/></div><p>{provider.description}</p><div className="badges"><span className="badge"><MapPin/>{provider.city}</span><PriceBadge value={provider.priceRange}/><AvailabilityBadge value={provider.availability}/><VerificationBadge level={provider.verificationLevel}/><FormalizationBadge status={provider.formalizationStatus}/></div><div className="recommendation"><Sparkles/> Recomendado porque combina {provider.trustScore>=80?"confianza alta":"experiencia local"} y {availabilityLabel[provider.availability].toLowerCase()}.</div><div className="card-actions"><Link className="button secondary" to={`/providers/${provider.id}`}>Ver perfil</Link><button className="button primary" onClick={()=>navigate(`/requests/new?providerId=${provider.id}`)}>Solicitar cotización</button></div></div></article>)}</div>}
+      </main><aside className={`map-panel ${mobileView==="map"?"mobile-active":""}`} aria-label="Mapa interactivo de proveedores"><MvpProviderMap providers={mapProviders} focusCity={(city||intent.city)||null} hoveredId={hoveredId} selectedId={selectedId} onSelectProvider={setSelectedId} onShowInList={showInList}/></aside></div></div>;
 }

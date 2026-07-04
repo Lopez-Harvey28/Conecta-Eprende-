@@ -1,3 +1,5 @@
+import type { ClientProfile, RoleAssignment, UserAccount } from "./identity";
+
 export const CREATIVE_CITIES = ["Estelí", "León", "Nagarote", "Managua", "Masaya", "Granada", "San Juan de Oriente", "Juigalpa", "Matagalpa", "Bluefields"] as const;
 export type CreativeCity = typeof CREATIVE_CITIES[number];
 export type PriceRange = "LOW" | "MEDIUM" | "HIGH" | "NEGOTIABLE";
@@ -11,7 +13,7 @@ export type PriceType = "FIXED" | "FROM" | "NEGOTIABLE" | "PER_UNIT" | "PER_PROJ
 export type MessageType = "TEXT" | "SYSTEM" | "QUOTE_SUMMARY" | "STATUS_UPDATE" | "QUICK_REPLY" | "COMPLETION_REQUEST" | "REVIEW_UNLOCKED";
 
 export interface ProviderProfile {
-  id: string; userId: string; publicName: string; tagline?:string; avatarUrl?:string; coverImageUrl?:string; city: CreativeCity; category: string;
+  id: string; ownerUserId: string; publicName: string; tagline?:string; avatarUrl?:string; coverImageUrl?:string; city: CreativeCity; category: string;
   description: string; serviceArea:CreativeCity[]; services: string[]; priceRange: PriceRange; availability: Availability;
   portfolioImages: string[]; formalizationStatus: FormalizationStatus; verificationLevel: VerificationLevel;
   trustScore: number; medals: string[]; responseTimeHrs: number; completedRequests: number; profileCompleteness:number;
@@ -78,7 +80,7 @@ export const seedProviders: ProviderProfile[] = Array.from({ length: 50 }, (_, i
   const completedRequests=index%17;
   const trustScore=calculateTrustScore({phoneVerified:verificationLevel!=="UNVERIFIED",profileComplete:true,requestsResponded:2+(index%8),requestsCompleted:completedRequests,averageReview:4+(index%2)*.5,accountAgeDays});
   return {
-    id: `provider-${index + 1}`, userId: index === 0 ? "user-provider" : `user-${index + 1}`,
+    id: `provider-${index + 1}`, ownerUserId: index === 0 ? "user-provider" : `user-${index + 1}`,
     publicName: index === 0 ? "Estudio Creativo Managua" : `${nameByCategory[category]} ${nameSuffixes[Math.floor(index/10)]} ${city}`,
     city, category, tagline:`${serviceByCategory[category][0]} con atención clara y local.`,description: `${serviceByCategory[category][0]} y soluciones hechas en ${city} para emprendimientos que buscan calidad, comunicación clara y entregas responsables.`,serviceArea:[city],
     services: serviceByCategory[category], priceRange: (["LOW","MEDIUM","HIGH"] as PriceRange[])[index % 3],
@@ -129,6 +131,18 @@ export const seedReports: Report[] = [
   ["Posible spam", "La conversación parece spam y repite el mismo mensaje."],
   ["Imágenes dudosas", "El perfil usa fotos que no parecen propias."],
 ].map(([reason,description],index) => ({ id:`report-${index+1}`, reporterId:"user-client", targetType:"PROVIDER", targetId:`provider-${index+6}`, reason, description, status:"PENDING", createdAt:`2026-06-${22+index}T10:00:00.000Z` }));
+
+const identityTimestamp="2026-01-15T12:00:00.000Z";
+export const seedAccounts:UserAccount[]=[
+  {id:"user-provider",email:"maria@conecta.ni",displayName:"María Fernanda Ruiz",status:"ACTIVE",emailVerifiedAt:identityTimestamp,phoneVerifiedAt:identityTimestamp,createdAt:identityTimestamp,updatedAt:identityTimestamp},
+  {id:"user-client",email:"andrea@conecta.ni",displayName:"Andrea López",status:"ACTIVE",emailVerifiedAt:identityTimestamp,phoneVerifiedAt:null,createdAt:identityTimestamp,updatedAt:identityTimestamp},
+  ...seedProviders.filter(provider=>provider.ownerUserId!=="user-provider").map(provider=>({id:provider.ownerUserId,email:`${provider.ownerUserId}@example.invalid`,displayName:provider.publicName,status:"ACTIVE" as const,emailVerifiedAt:identityTimestamp,phoneVerifiedAt:provider.verificationLevel==="UNVERIFIED"?null:identityTimestamp,createdAt:provider.createdAt,updatedAt:provider.updatedAt})),
+];
+export const seedClientProfiles:ClientProfile[]=[{id:"client-profile-1",userId:"user-client",publicName:"Andrea López",city:"Managua",avatarUrl:null,createdAt:identityTimestamp,updatedAt:identityTimestamp}];
+export const seedRoleAssignments:RoleAssignment[]=[
+  ...seedAccounts.map((account,index)=>({id:`role-user-${index+1}`,userId:account.id,role:"USER" as const,grantedAt:identityTimestamp,grantedByUserId:null})),
+  {id:"role-admin-1",userId:"user-provider",role:"ADMIN",grantedAt:identityTimestamp,grantedByUserId:null},
+];
 
 export const CATEGORY_OPTIONS = categories;
 export const priceLabel: Record<PriceRange,string> = { LOW:"Económico", MEDIUM:"Intermedio", HIGH:"Premium", NEGOTIABLE:"Negociable" };

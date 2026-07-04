@@ -3,9 +3,10 @@ import { Link } from "react-router-dom";
 import { Award, BriefcaseBusiness, Check, Circle, ExternalLink, MessageCircle, Package, Plus, ShieldCheck, Smartphone, UserRound } from "lucide-react";
 import { FormalizationBadge, PageHeader, TrustBadge, UnavailableForMvpCard, VerificationBadge } from "../components/mvp/Ui";
 import { useMvpStore } from "../stores/mvp-store";
+import { useAuthenticatedUser } from "../hooks/use-current-user";
 
 export default function MyProfileDashboardPage(){
-  const current=useMvpStore(state=>state.currentUser);const provider=useMvpStore(state=>state.providers.find(item=>item.id===state.currentUser.providerId));const allOffers=useMvpStore(state=>state.offers);const allRequests=useMvpStore(state=>state.requests);
+  const current=useAuthenticatedUser();const provider=useMvpStore(state=>state.providers.find(item=>item.id===current.providerId));const allOffers=useMvpStore(state=>state.offers);const allRequests=useMvpStore(state=>state.requests);
   const offers=useMemo(()=>allOffers.filter(item=>item.providerId===current.providerId),[allOffers,current.providerId]);const requests=useMemo(()=>allRequests.filter(item=>item.providerId===current.providerId),[allRequests,current.providerId]);
   if(!provider)return <div className="content-page"><h1>Perfil no encontrado</h1><p>La cuenta no tiene un perfil de proveedor vinculado.</p></div>;
   const activeOffers=offers.filter(item=>item.status==="ACTIVE");const inactiveOffers=offers.filter(item=>item.status==="INACTIVE");const mostConsulted=[...offers].sort((a,b)=>b.inquiryCount-a.inquiryCount)[0];const unread=requests.reduce((sum,item)=>sum+item.unreadByProvider,0);const checklist=[{label:"Nombre público",done:!!provider.publicName},{label:"Ciudad creativa",done:!!provider.city},{label:"Categoría principal",done:!!provider.category},{label:"Descripción completa",done:provider.description.length>=40},{label:"Producto o servicio activo",done:activeOffers.length>0},{label:"Imagen o portafolio",done:provider.portfolioImages.length>0},{label:"Rango de precio",done:!!provider.priceRange},{label:"Disponibilidad",done:!!provider.availability},{label:"Teléfono verificado",done:current.phoneVerified}];const completeness=Math.round(checklist.filter(item=>item.done).length/checklist.length*100);

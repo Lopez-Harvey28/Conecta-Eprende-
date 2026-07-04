@@ -35,6 +35,15 @@ async function startServer() {
     res.json({ status: "ok", timestamp: new Date().toISOString() });
   });
 
+  // Authentication integration boundary. A real login/session middleware should
+  // validate the HTTP-only cookie and assign the principal to res.locals.
+  // No development identity or role is fabricated here.
+  app.get("/api/auth/session", (req, res) => {
+    const session = res.locals.authSession as unknown;
+    if (!session) return res.status(401).json({ error: "No hay una sesión activa." });
+    return res.json(session);
+  });
+
   // GET Providers Search
   app.get("/api/providers/search", async (req, res) => {
     try {

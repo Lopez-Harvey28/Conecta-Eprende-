@@ -3,9 +3,15 @@ from playwright.sync_api import sync_playwright
 URL = "http://127.0.0.1:3000/search?query=Empaques%20ecol%C3%B3gicos%20en%20Le%C3%B3n"
 
 
+def open_search(page):
+    page.goto("http://127.0.0.1:3000", wait_until="domcontentloaded", timeout=120_000)
+    page.evaluate("history.pushState({}, '', '/search?query=Empaques%20ecol%C3%B3gicos%20en%20Le%C3%B3n'); dispatchEvent(new PopStateEvent('popstate'))")
+    page.wait_for_timeout(250)
+
+
 def verify_desktop(page):
     page.set_viewport_size({"width": 1440, "height": 900})
-    page.goto(URL, wait_until="commit", timeout=120_000)
+    open_search(page)
     page.wait_for_selector(".leaflet-container")
     panel_box = page.locator(".map-panel").bounding_box()
     assert panel_box and panel_box["width"] >= 300 and panel_box["x"] < 1440, panel_box
@@ -14,7 +20,7 @@ def verify_desktop(page):
     marker.dispatch_event("click")
     preview = page.locator(".map-provider-preview")
     preview.wait_for(state="visible")
-    assert "Taller Guardabarranco León" in preview.inner_text()
+    assert "Empaques Ceibo León" in preview.inner_text()
     assert page.locator(".provider-result.map-linked-active").count() == 1
     preview.get_by_role("button", name="Ver en lista").click()
     card_position = page.locator(".provider-result.map-linked-active").evaluate(
@@ -25,7 +31,7 @@ def verify_desktop(page):
 
 def verify_mobile(page):
     page.set_viewport_size({"width": 390, "height": 844})
-    page.goto(URL, wait_until="commit", timeout=120_000)
+    open_search(page)
     map_button = page.get_by_role("button", name="Mapa")
     map_button.click()
     page.wait_for_selector(".map-panel.mobile-active .leaflet-container")

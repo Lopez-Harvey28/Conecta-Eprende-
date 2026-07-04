@@ -28,4 +28,12 @@ npm run build
 6. Editar el perfil público desde Mi perfil.
 7. Enviar un reporte y revisarlo desde Administración.
 
-Los datos de demostración persisten en `localStorage`. 2FA, carga de archivos, importación/exportación e integraciones gubernamentales se muestran honestamente como fuera del alcance del MVP.
+Los datos de dominio persisten en `localStorage`; la sesión nunca se incluye en esa serialización. Mientras se conecta el login real, la aplicación inicia con la cuenta administradora que también posee `provider-1`.
+
+Para desactivar ese bootstrap al conectar autenticación:
+
+```bash
+VITE_BOOTSTRAP_ADMIN=false
+```
+
+El middleware de login debe validar la cookie HTTP-only, colocar el `AuthSessionDTO` en `res.locals.authSession` y exponerlo mediante `GET /api/auth/session`.

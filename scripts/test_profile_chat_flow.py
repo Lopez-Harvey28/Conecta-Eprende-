@@ -66,12 +66,13 @@ with sync_playwright() as playwright:
     assert page.locator(".step-list button").first.get_attribute("aria-pressed") != before_state
 
     client_route(page, "/admin/reports")
-    page.get_by_role("heading", name="No autorizado").wait_for()
-    client_route(page, "/settings/security")
-    page.get_by_role("button", name="Activar modo administrador").click()
-    client_route(page, "/admin/reports")
     page.get_by_role("heading", name="Revisión de reportes").wait_for()
     assert page.get_by_role("button", name="Marcar revisado").count() >= 1
+
+    client_route(page, "/settings/security")
+    page.get_by_role("button", name="Cerrar sesión").click()
+    client_route(page, "/requests")
+    page.get_by_role("heading", name="Iniciá sesión para continuar").wait_for()
 
     assert not errors, errors
     print("PROFILE_CHAT_MAP_OK")

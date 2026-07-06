@@ -22,6 +22,9 @@ import {
   updateFormalizationStep,
   getFullProvider,
 } from "./src/lib/memory-db";
+import { calculateAverageRating } from "./src/domain/rating/calculateAverageRating";
+import { calculateTrustScore } from "./src/domain/rating/calculateTrustScore";
+import { calculateRiskScore } from "./src/domain/risk/calculateRiskScore";
 
 async function startServer() {
   const app = express();
@@ -42,6 +45,16 @@ async function startServer() {
     const session = res.locals.authSession as unknown;
     if (!session) return res.status(401).json({ error: "No hay una sesión activa." });
     return res.json(session);
+  });
+
+  app.get(["/me", "/api/me"], (req, res) => {
+    const session = res.locals.authSession as unknown;
+    if (!session) return res.status(401).json({ error: "No hay una sesión activa." });
+    return res.json(session);
+  });
+
+  app.get("/api/providers", (req, res) => {
+    res.json({ success: true, data: providers });
   });
 
   // GET Providers Search
@@ -161,6 +174,124 @@ async function startServer() {
     } catch (error) {
        res.status(500).json({ success: false });
     }
+  });
+
+  app.post("/api/providers", async (req, res) => {
+    return res.status(501).json({ error: "La creación de perfil proveedor requiere login real y persistencia backend." });
+  });
+
+  app.patch("/api/providers/:id", async (req, res) => {
+     try {
+        const providerId = req.params.id;
+        const index = providers.findIndex(p => p.id === providerId);
+        if (index === -1) return res.status(404).json({ error: "Provider not found" });
+        const session = res.locals.authSession as { userId?: string } | undefined;
+        if (!session) return res.status(401).json({ error: "Se requiere sesión para editar el perfil." });
+        if (session.userId && providers[index].userId !== session.userId) {
+          return res.status(403).json({ error: "Solo el dueño puede editar este perfil." });
+        }
+        providers[index] = { ...providers[index], ...req.body, updatedAt: new Date().toISOString() };
+        res.json({ success: true, data: providers[index] });
+     } catch(e) {
+        res.status(500).json({ error: "Internal Server Error" });
+     }
+  });
+
+  app.get("/api/providers/:id/reviews", (req, res) => {
+    const provider = getFullProvider(req.params.id);
+    if (!provider) return res.status(404).json({ error: "Provider not found" });
+    res.json(provider.reviews);
+  });
+
+  app.get("/api/providers/:id/rating", (req, res) => {
+    const provider = getFullProvider(req.params.id);
+    if (!provider) return res.status(404).json({ error: "Provider not found" });
+    const avgRating = calculateAverageRating(provider.reviews.map(review => ({ score: review.generalScore, verified: true })));
+    res.json({ avgRating, totalVerifiedReviews: provider.reviews.length });
+  });
+
+  app.get("/api/providers/:id/trust-score", (req, res) => {
+    const full = getFullProvider(req.params.id);
+    if (!full) return res.status(404).json({ error: "Provider not found" });
+    const avgReviewScore = calculateAverageRating(full.reviews.map(review => ({ score: review.generalScore, verified: true })));
+    const trustScore = calculateTrustScore({
+      profileComplete: Boolean(full.provider.businessName && full.provider.city && full.provider.mainCategory && full.catalogItems.length),
+      contactVerified: full.provider.verified,
+      requestsResponded: Math.max(full.provider.completedRequests, full.reviews.length),
+      requestsCompleted: full.provider.completedRequests,
+      avgReviewScore,
+      responseTimeScore: full.provider.responseTimeHrs <= 6 ? 1 : full.provider.responseTimeHrs <= 24 ? 0.6 : 0.3,
+      accountAgeFactor: 1,
+      suspiciousActivityPenalty: 0,
+    });
+    res.json({ trustScore });
+  });
+
+  app.get("/api/requests", (req, res) => {
+    const scope = req.query.scope as string | undefined;
+    const providerProfileId = req.query.providerProfileId as string | undefined;
+    const result = scope === "received" && providerProfileId ? quotes.filter(q => q.providerId === providerProfileId) : quotes;
+    res.json(result);
+  });
+
+  app.post("/api/requests", (req, res) => {
+    return res.status(501).json({ error: "La creación de solicitudes en backend requiere login real; el MVP usa el store local protegido." });
+  });
+
+  app.patch("/api/requests/:id/status", (req, res) => {
+    const thread = quotes.find(q => q.id === req.params.id);
+    if (!thread) return res.status(404).json({ error: "Thread not found" });
+    thread.status = req.body.status ?? thread.status;
+    res.json(thread);
+  });
+
+  app.post("/api/requests/:id/confirm-completion", (req, res) => {
+    const thread = quotes.find(q => q.id === req.params.id);
+    if (!thread) return res.status(404).json({ error: "Thread not found" });
+    thread.status = "COMPLETED_PENDING_CONFIRMATION";
+    res.json(thread);
+  });
+
+  app.post("/api/requests/:id/reviews", (req, res) => {
+    return res.status(501).json({ error: "Las reseñas verificadas requieren confirmación bilateral y persistencia backend." });
+  });
+
+  app.get("/api/admin/risk-reports", (req, res) => {
+    const session = res.locals.authSession as { systemRoles?: string[] } | undefined;
+    if (!session) return res.status(401).json({ error: "Se requiere sesión administrativa." });
+    if (!session.systemRoles?.some(role => role === "SUPER_ADMIN" || role === "ADMIN_REVIEWER")) return res.status(403).json({ error: "No tenés permisos administrativos." });
+    const riskReports = providers.map(provider => {
+      const risk = calculateRiskScore({
+        avgSearchTimeSeconds: provider.completedRequests > 15 ? 12 : 35,
+        avgRequestToCompletionMinutes: provider.completedRequests > 20 ? 50 : 240,
+        avgMessagesPerRequest: provider.completedRequests > 20 ? 3 : 7,
+        newAccountsPercentage: provider.verified ? 10 : 45,
+        repeatedTargetProviderScore: provider.completedRequests > 20 ? 60 : 20,
+        ratingConcentrationScore: provider.score >= 95 ? 55 : 15,
+      });
+      return {
+        id: `risk-${provider.id}`,
+        providerProfileId: provider.id,
+        riskScore: risk.score,
+        suspiciousCyclesCount: risk.shouldGenerateReport ? 1 : 0,
+        avgSearchTimeSeconds: provider.completedRequests > 15 ? 12 : 35,
+        avgRequestToCompletionMinutes: provider.completedRequests > 20 ? 50 : 240,
+        avgMessagesPerRequest: provider.completedRequests > 20 ? 3 : 7,
+        newAccountsPercentage: provider.verified ? 10 : 45,
+        ratingConcentrationScore: provider.score >= 95 ? 55 : 15,
+        generatedAt: new Date().toISOString(),
+        status: "PENDING",
+        recommendedAction: risk.recommendedAction,
+      };
+    }).filter(report => report.riskScore >= 70);
+    res.json(riskReports);
+  });
+
+  app.patch("/api/admin/risk-reports/:id", (req, res) => {
+    const session = res.locals.authSession as { systemRoles?: string[] } | undefined;
+    if (!session) return res.status(401).json({ error: "Se requiere sesión administrativa." });
+    if (!session.systemRoles?.some(role => role === "SUPER_ADMIN" || role === "ADMIN_REVIEWER")) return res.status(403).json({ error: "No tenés permisos administrativos." });
+    res.json({ id: req.params.id, status: req.body.status ?? "REVIEWED", updatedAt: new Date().toISOString() });
   });
 
   // GET Quotes — optionally filtered by ?providerId= (defaults to "1" to

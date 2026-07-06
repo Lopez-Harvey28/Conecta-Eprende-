@@ -2,26 +2,52 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
+import cookieParser from "cookie-parser";
 import { extractIntent } from "./src/lib/ai/extract-intent";
 import { generateQuoteDraft } from "./src/lib/ai/quote-draft";
 import { generateEnhancedBio } from "./src/lib/ai/enhance-bio";
-import { 
-  quoteDraftRequestSchema, 
-  quoteRequestSchema, 
-  searchProviderSchema, 
+import {
+  quoteDraftRequestSchema,
+  quoteRequestSchema,
+  searchProviderSchema,
   aiSearchProviderSchema,
   enhanceBioSchema,
-  formalizationUpdateSchema
+  formalizationUpdateSchema,
+  registerSchema,
+  loginSchema,
 } from "./src/lib/api-schema";
-
 import {
-  providers,
-  catalogItems,
-  quotes,
-  formalizations,
-  updateFormalizationStep,
-  getFullProvider,
-} from "./src/lib/memory-db";
+  hashPassword,
+  verifyPassword,
+  generateAccessToken,
+  generateRefreshToken,
+  verifyAccessToken,
+  verifyRefreshToken,
+  setAuthCookies,
+  clearAuthCookies,
+  getRefreshTokenFromRequest,
+  getRefreshTokenExpiryDate,
+  generateSecureToken,
+  type TokenPayload,
+} from "./src/lib/auth";
+import { prisma } from "./src/lib/db";
+import {
+  searchProviders,
+  getFullProviderByIdOrSlug,
+  updateProvider as updateProviderService,
+  getProviderMapData,
+} from "./src/lib/providers-service";
+import {
+  searchCatalogItems,
+} from "./src/lib/catalog-service";
+import {
+  getThreadsByProvider,
+  getThreadsBySender,
+  createThread,
+  getThreadById,
+  addMessage,
+  updateThread,
+} from "./src/lib/quotes-service";
 
 async function startServer() {
   const app = express();
@@ -29,6 +55,397 @@ async function startServer() {
 
   // Body Parsing Middleware
   app.use(express.json());
+  app.use(cookieParser());
+
+  // === AUTH MIDDLEWARE ===
+  const authenticate = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const accessToken = req.cookies?.access_token;
+    if (!accessToken) {
+      return res.status(401).json({ success: false, error: "No autenticado" });
+    }
+    const payload = verifyAccessToken(accessToken);
+    if (!payload) {
+      return res.status(401).json({ success: false, error: "Sesión expirada" });
+    }
+    (req as any).user = payload;
+    next();
+  };
+
+  // ──────────────────────────────────────────────────────────
+  // AUTH ROUTES
+  // ──────────────────────────────────────────────────────────
+
+  // POST /api/auth/register
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const parsed = registerSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          success: false,
+          error: "Datos inválidos",
+          details: parsed.error.issues.map(i => i.message),
+        });
+      }
+
+      const { name, email, password } = parsed.data;
+
+      const existing = await prisma.user.findUnique({ where: { email } });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          error: "Este correo ya está registrado",
+        });
+      }
+
+      const hashedPassword = await hashPassword(password);
+      const user = await prisma.user.create({
+        data: {
+          name,
+          email,
+          password: hashedPassword,
+          role: "USER",
+        },
+        select: { id: true, email: true, name: true, role: true },
+      });
+
+      const tokenPayload: TokenPayload = {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      };
+
+      const accessToken = generateAccessToken(tokenPayload);
+      const refreshToken = generateRefreshToken(tokenPayload);
+
+      await prisma.refreshToken.create({
+        data: {
+          token: refreshToken,
+          userId: user.id,
+          expiresAt: getRefreshTokenExpiryDate(),
+        },
+      });
+
+      setAuthCookies(res, accessToken, refreshToken);
+
+      res.status(201).json({
+        success: true,
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Register error:", error);
+      res.status(500).json({ success: false, error: "Error al registrar usuario" });
+    }
+  });
+
+  // POST /api/auth/login
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const parsed = loginSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({
+          success: false,
+          error: "Datos inválidos",
+          details: parsed.error.issues.map(i => i.message),
+        });
+      }
+
+      const { email, password } = parsed.data;
+
+      const user = await prisma.user.findUnique({
+        where: { email },
+        select: { id: true, email: true, name: true, role: true, password: true },
+      });
+
+      if (!user || !user.password) {
+        return res.status(401).json({
+          success: false,
+          error: "Credenciales inválidas",
+        });
+      }
+
+      const valid = await verifyPassword(password, user.password);
+      if (!valid) {
+        return res.status(401).json({
+          success: false,
+          error: "Credenciales inválidas",
+        });
+      }
+
+      const tokenPayload: TokenPayload = {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      };
+
+      const accessToken = generateAccessToken(tokenPayload);
+      const refreshToken = generateRefreshToken(tokenPayload);
+
+      await prisma.refreshToken.create({
+        data: {
+          token: refreshToken,
+          userId: user.id,
+          expiresAt: getRefreshTokenExpiryDate(),
+        },
+      });
+
+      setAuthCookies(res, accessToken, refreshToken);
+
+      res.json({
+        success: true,
+        data: {
+          user: {
+            id: user.id,
+            email: user.email,
+            name: user.name,
+            role: user.role,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ success: false, error: "Error al iniciar sesión" });
+    }
+  });
+
+  // POST /api/auth/logout
+  app.post("/api/auth/logout", async (req, res) => {
+    try {
+      const refreshToken = getRefreshTokenFromRequest(req);
+      if (refreshToken) {
+        await prisma.refreshToken.deleteMany({ where: { token: refreshToken } });
+      }
+      clearAuthCookies(res);
+      res.json({ success: true, message: "Sesión cerrada" });
+    } catch (error) {
+      clearAuthCookies(res);
+      res.json({ success: true, message: "Sesión cerrada" });
+    }
+  });
+
+  // POST /api/auth/refresh
+  app.post("/api/auth/refresh", async (req, res) => {
+    try {
+      const incomingRefreshToken = getRefreshTokenFromRequest(req);
+      if (!incomingRefreshToken) {
+        return res.status(401).json({ success: false, error: "No hay refresh token" });
+      }
+
+      const payload = verifyRefreshToken(incomingRefreshToken);
+      if (!payload) {
+        return res.status(401).json({ success: false, error: "Refresh token inválido o expirado" });
+      }
+
+      const storedToken = await prisma.refreshToken.findUnique({
+        where: { token: incomingRefreshToken },
+      });
+
+      if (!storedToken || storedToken.expiresAt < new Date()) {
+        return res.status(401).json({ success: false, error: "Refresh token expirado" });
+      }
+
+      await prisma.refreshToken.delete({ where: { token: incomingRefreshToken } });
+
+      const newPayload: TokenPayload = {
+        userId: payload.userId,
+        email: payload.email,
+        role: payload.role,
+      };
+
+      const newAccessToken = generateAccessToken(newPayload);
+      const newRefreshToken = generateRefreshToken(newPayload);
+
+      await prisma.refreshToken.create({
+        data: {
+          token: newRefreshToken,
+          userId: payload.userId,
+          expiresAt: getRefreshTokenExpiryDate(),
+        },
+      });
+
+      setAuthCookies(res, newAccessToken, newRefreshToken);
+
+      res.json({ success: true, message: "Tokens renovados" });
+    } catch (error) {
+      console.error("Refresh error:", error);
+      res.status(500).json({ success: false, error: "Error al renovar la sesión" });
+    }
+  });
+
+  // GET /api/auth/me
+  app.get("/api/auth/me", authenticate, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          image: true,
+          role: true,
+          emailVerified: true,
+          createdAt: true,
+          providers: {
+            select: {
+              id: true,
+              displayName: true,
+              slug: true,
+              verified: true,
+              formalizationStatus: true,
+            },
+          },
+        },
+      });
+
+      if (!user) {
+        return res.status(404).json({ success: false, error: "Usuario no encontrado" });
+      }
+
+      res.json({ success: true, data: { user } });
+    } catch (error) {
+      console.error("Me error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener usuario" });
+    }
+  });
+
+  // GET /api/auth/google — initiate OAuth
+  app.get("/api/auth/google", (req, res) => {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+
+    if (!clientId) {
+      return res.status(503).json({
+        success: false,
+        error: "OAuth con Google no está configurado",
+      });
+    }
+
+    const redirectUri = `${appUrl}/api/auth/google/callback`;
+    const scope = encodeURIComponent("openid email profile");
+
+    const authUrl = [
+      "https://accounts.google.com/o/oauth2/v2/auth",
+      `?client_id=${clientId}`,
+      `&redirect_uri=${encodeURIComponent(redirectUri)}`,
+      "&response_type=code",
+      "&scope=openid email profile",
+      "&access_type=offline",
+      "&prompt=consent",
+    ].join("");
+
+    res.redirect(authUrl);
+  });
+
+  // GET /api/auth/google/callback — handle OAuth
+  app.get("/api/auth/google/callback", async (req, res) => {
+    const { code, error } = req.query;
+    const appUrl = process.env.APP_URL || "http://localhost:3000";
+
+    if (error || !code) {
+      return res.redirect(`${appUrl}/auth/login?error=oauth_failed`);
+    }
+
+    try {
+      const clientId = process.env.GOOGLE_CLIENT_ID!;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET!;
+      const redirectUri = `${appUrl}/api/auth/google/callback`;
+
+      const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code: code as string,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          grant_type: "authorization_code",
+        }),
+      });
+
+      if (!tokenResponse.ok) {
+        return res.redirect(`${appUrl}/auth/login?error=oauth_token_failed`);
+      }
+
+      const tokenData = await tokenResponse.json() as { id_token: string };
+      const userInfoResponse = await fetch(
+        "https://www.googleapis.com/oauth2/v2/userinfo",
+        { headers: { Authorization: `Bearer ${tokenData.id_token}` } }
+      );
+
+      if (!userInfoResponse.ok) {
+        return res.redirect(`${appUrl}/auth/login?error=oauth_userinfo_failed`);
+      }
+
+      const googleUser = await userInfoResponse.json() as {
+        id: string;
+        email: string;
+        name?: string;
+        picture?: string;
+      };
+
+      let user = await prisma.user.findUnique({ where: { email: googleUser.email } });
+
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            email: googleUser.email,
+            name: googleUser.name || googleUser.email.split("@")[0],
+            image: googleUser.picture,
+            emailVerified: new Date(),
+          },
+        });
+      }
+
+      await prisma.account.upsert({
+        where: {
+          provider_providerAccountId: {
+            provider: "google",
+            providerAccountId: googleUser.id,
+          },
+        },
+        update: {},
+        create: {
+          userId: user.id,
+          provider: "google",
+          providerAccountId: googleUser.id,
+          access_token: tokenData.id_token,
+        },
+      });
+
+      const tokenPayload: TokenPayload = {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      };
+
+      const accessToken = generateAccessToken(tokenPayload);
+      const refreshToken = generateRefreshToken(tokenPayload);
+
+      await prisma.refreshToken.create({
+        data: {
+          token: refreshToken,
+          userId: user.id,
+          expiresAt: getRefreshTokenExpiryDate(),
+        },
+      });
+
+      setAuthCookies(res, accessToken, refreshToken);
+
+      res.redirect(`${appUrl}/`);
+    } catch (error) {
+      console.error("Google OAuth callback error:", error);
+      res.redirect(`${appUrl}/auth/login?error=oauth_server_error`);
+    }
+  });
+
+  // GET /api/auth/google/callback (alternative: query param error) handled above
 
   // === API ROUTES (Mounted FIRST) ===
   app.get("/api/health", (req, res) => {
@@ -44,41 +461,15 @@ async function startServer() {
       }
       const { q, city } = parsed.data;
 
-      // Normalize `q` to a single string (defensive: handles array case from accidental duplicate params)
-      const queryStr = Array.isArray(q) ? q[0] : q;
-
-      const results = providers.filter(p => {
-        let match = true;
-        if (city) {
-          match = match && p.city.toUpperCase() === city.toUpperCase();
-        }
-        if (queryStr) {
-          const lowerQ = queryStr.toLowerCase();
-          // Match across multiple words; provider matches if ANY word appears in
-          // displayName/category OR in any of its catalog items (title/category/
-          // subcategory/itemType/description) — per spec §11.1 the algorithm must
-          // search inside the catalog, not just the provider name.
-          const words = lowerQ.split(/\s+/).filter(Boolean);
-          const providerText = (p.displayName + " " + p.category + " " + p.mainCategory).toLowerCase();
-          const providerMatch = words.some(w => providerText.includes(w));
-          const catalogMatch = words.some(w =>
-            catalogItems.some(c => {
-              if (c.providerId !== p.id) return false;
-              const cText = (
-                c.title + " " + c.category + " " + c.subcategory + " " +
-                c.itemType + " " + c.description
-              ).toLowerCase();
-              return cText.includes(w);
-            })
-          );
-          match = match && (providerMatch || catalogMatch);
-        }
-        return match;
+      const results = await searchProviders({
+        q: Array.isArray(q) ? q[0] : q,
+        city,
       });
 
       res.json({ success: true, data: results });
     } catch (error) {
-      res.status(500).json({ success: false, error: "Internal Error" });
+      console.error("Provider search error:", error);
+      res.status(500).json({ success: false, error: "Error al buscar proveedores" });
     }
   });
 
@@ -93,76 +484,68 @@ async function startServer() {
 
       const intent = await extractIntent(query);
 
-      let results = providers;
-      if (intent.city) {
-         results = results.filter(p => p.city.toUpperCase() === intent.city!.toUpperCase().trim());
-      }
+      // First get all providers matching city if provided
+      let providers = await searchProviders({ city: intent.city || undefined });
+
       if (intent.category) {
-         const cat = intent.category.toLowerCase();
-         results = results.filter(p => {
-           // Match against the provider's own categories...
-           const providerCats = (p.category + " " + p.mainCategory).toLowerCase();
-           if (providerCats.includes(cat)) return true;
-           // ...OR any catalog item whose category/subcategory/itemType matches.
-           // (Spec §21.2: the algorithm searches catalog_items.category etc.)
-           return catalogItems.some(c => {
-             if (c.providerId !== p.id) return false;
-             return (
-               c.category.toLowerCase().includes(cat) ||
-               c.subcategory.toLowerCase().includes(cat) ||
-               c.itemType.toLowerCase().includes(cat)
-             );
-           });
-         });
+        const cat = intent.category.toLowerCase();
+        // Filter by category in-memory (matches mainCategory or category)
+        providers = providers.filter(p => {
+          const providerCats = ((p.category || "") + " " + (p.mainCategory || "")).toLowerCase();
+          if (providerCats.includes(cat)) return true;
+          return false;
+        });
       } else if (intent.keywords && intent.keywords.length > 0) {
-         // Use ALL keywords (not just the first) so multi-word queries can still match.
-         const kws = intent.keywords.map(k => k.toLowerCase()).filter(Boolean);
-         results = results.filter(p => {
-           const haystack = (p.displayName + " " + p.category + " " + p.mainCategory).toLowerCase();
-           const providerHit = kws.some(k => haystack.includes(k));
-           if (providerHit) return true;
-           // Also match keywords against the provider's catalog (title/description/etc.)
-           return catalogItems.some(c => {
-             if (c.providerId !== p.id) return false;
-             const cText = (
-               c.title + " " + c.category + " " + c.subcategory + " " +
-               c.itemType + " " + c.description
-             ).toLowerCase();
-             return kws.some(k => cText.includes(k));
-           });
-         });
+        const kws = intent.keywords.map(k => k.toLowerCase()).filter(Boolean);
+        providers = providers.filter(p => {
+          const haystack = ((p.displayName || "") + " " + (p.category || "") + " " + (p.mainCategory || "")).toLowerCase();
+          return kws.some(k => haystack.includes(k));
+        });
       }
 
-      res.json({ success: true, intent, data: results });
+      res.json({ success: true, intent, data: providers });
 
     } catch (error) {
-      res.status(500).json({ success: false, error: "Internal Error" });
+      console.error("AI search error:", error);
+      res.status(500).json({ success: false, error: "Error en búsqueda IA" });
     }
   });
 
-  // GET Provider by id OR slug (spec §26.1) — returns the full structured
-  // public profile payload: provider + catalog (with equipment join) + photos
-  // + medals + verified reviews + computed average review score.
+  // GET Provider by id OR slug (spec §26.1)
   app.get("/api/providers/:id", async (req, res) => {
     try {
-      const full = getFullProvider(req.params.id);
+      const full = await getFullProviderByIdOrSlug(req.params.id);
       if (!full) return res.status(404).json({ success: false, message: "No encontrado" });
 
       res.json({ success: true, data: full });
     } catch (error) {
-       res.status(500).json({ success: false });
+      console.error("Get provider error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener proveedor" });
     }
   });
 
-  // GET Quotes — optionally filtered by ?providerId= (defaults to "1" to
-  // preserve the legacy QuotesPage contract which lists the current provider).
+  // GET Quotes — optionally filtered by ?providerId= or ?senderId=
+  // For MVP: returns threads by providerId (backward compatible)
+  // After auth: use ?senderId= with auth middleware to get user's threads
   app.get("/api/quotes", async (req, res) => {
     try {
-      const providerId = (req.query.providerId as string) || "1";
-      const activeQuotes = quotes.filter(q => q.providerId === providerId);
-      res.json({ success: true, data: activeQuotes });
+      const providerId = req.query.providerId as string | undefined;
+      const senderId = req.query.senderId as string | undefined;
+
+      if (senderId) {
+        const threads = await getThreadsBySender(senderId);
+        return res.json({ success: true, data: threads });
+      }
+
+      if (providerId) {
+        const threads = await getThreadsByProvider(providerId);
+        return res.json({ success: true, data: threads });
+      }
+
+      res.json({ success: true, data: [] });
     } catch (error) {
-       res.status(500).json({ success: false, error: "Internal Error" });
+      console.error("Get quotes error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener cotizaciones" });
     }
   });
 
@@ -182,36 +565,33 @@ async function startServer() {
     }
   });
 
-  // POST Request Quote
+  // POST Request Quote — creates a new quote thread
   app.post("/api/quotes", async (req, res) => {
     try {
       const parsed = quoteRequestSchema.safeParse(req.body);
 
       if (!parsed.success) {
-        return res.status(400).json({ error: "Faltan campos obligatorios", details: parsed.error.issues });
+        return res.status(400).json({ success: false, error: "Faltan campos obligatorios", details: parsed.error.issues });
       }
 
       const { providerId, subject, body, catalogItemId } = parsed.data;
 
-      const newQuote = {
-        id: "t" + Date.now(),
-        providerId: providerId,
-        // Persist the catalog item the request is about (spec §20.3).
-        catalogItemId: catalogItemId || null,
-        subject: subject || "Solicitud de cotización",
-        clientName: "Cliente Nuevo",
-        clientAvatar: "CN",
-        status: "OPEN",
-        date: "Justo ahora",
-        messages: [
-          { id: "m" + Date.now(), author: "client", text: body, time: "Ahora" }
-        ]
-      };
+      // For authenticated requests, use the authenticated user as sender
+      // For now, use a default senderId (will be replaced when auth is connected)
+      const senderId = (req as any).user?.userId || (req.body.senderId as string) || "anonymous";
 
-      quotes.unshift(newQuote);
-      res.json({ success: true, data: newQuote });
-    } catch (error: any) {
-      res.status(500).json({ success: false, error: "Internal Error" });
+      const newQuote = await createThread({
+        senderId,
+        providerId,
+        catalogItemId,
+        subject: subject || "Solicitud de cotización",
+        initialMessage: body,
+      });
+
+      res.status(201).json({ success: true, data: newQuote });
+    } catch (error) {
+      console.error("Create quote error:", error);
+      res.status(500).json({ success: false, error: "Error al crear cotización" });
     }
   });
 
@@ -219,35 +599,54 @@ async function startServer() {
   app.post("/api/quotes/:id/messages", async (req, res) => {
     try {
       const threadId = req.params.id;
-      const thread = quotes.find(q => q.id === threadId);
-      if (!thread) return res.status(404).json({ error: "Thread not found" });
+      const { text, authorRole } = req.body;
 
-      const newMsg = {
-         id: "m" + Date.now(),
-         author: req.body.author || 'provider',
-         text: req.body.text,
-         time: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
-      };
+      if (!text) {
+        return res.status(400).json({ success: false, error: "El mensaje es obligatorio" });
+      }
 
-      thread.messages.push(newMsg);
-      res.json({ success: true, data: newMsg });
-    } catch (e) {
-      res.status(500).json({ error: "Server Error" });
+      // For authenticated requests, use the authenticated user
+      const authorId = (req as any).user?.userId || req.body.authorId || "anonymous";
+      const role = authorRole || ((req as any).user?.role === "PROVIDER" ? "provider" : "client");
+
+      const newMsg = await addMessage(threadId, {
+        authorId,
+        authorRole: role,
+        body: text,
+      });
+
+      res.status(201).json({ success: true, data: newMsg });
+    } catch (error) {
+      console.error("Add message error:", error);
+      res.status(500).json({ success: false, error: "Error al agregar mensaje" });
     }
   });
 
   // PUT Update Quote Thread Status
   app.put("/api/quotes/:id", async (req, res) => {
     try {
-      const thread = quotes.find(q => q.id === req.params.id);
-      if (!thread) return res.status(404).json({ error: "Thread not found" });
+      const threadId = req.params.id;
+      const { status, quotedPriceLabel, quotedDeliveryTime } = req.body;
 
-      if (req.body.status) {
-         thread.status = req.body.status;
+      const existing = await prisma.quoteThread.findUnique({
+        where: { id: threadId },
+        select: { id: true, status: true },
+      });
+
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "Thread no encontrado" });
       }
-      res.json({ success: true, data: thread });
-    } catch (e) {
-      res.status(500).json({ error: "Server Error" });
+
+      const updated = await updateThread(threadId, {
+        status,
+        quotedPriceLabel,
+        quotedDeliveryTime,
+      });
+
+      res.json({ success: true, data: updated });
+    } catch (error) {
+      console.error("Update quote error:", error);
+      res.status(500).json({ success: false, error: "Error al actualizar cotización" });
     }
   });
 
@@ -268,48 +667,300 @@ async function startServer() {
   });
 
   // PUT Update Profile
-  app.put("/api/providers/:id", async (req, res) => {
-     try {
-        const providerId = req.params.id;
-        const index = providers.findIndex(p => p.id === providerId);
-        if (index === -1) return res.status(404).json({ error: "Provider not found" });
-        
-        providers[index] = { ...providers[index], ...req.body };
-        res.json({ success: true, data: providers[index] });
-     } catch(e) {
-        res.status(500).json({ error: "Internal Server Error" });
-     }
+  app.put("/api/providers/:id", authenticate, async (req, res) => {
+    try {
+      const providerId = req.params.id;
+      const { userId } = (req as any).user;
+
+      // Verify the authenticated user owns this provider
+      const existing = await prisma.provider.findUnique({
+        where: { id: providerId },
+        select: { userId: true },
+      });
+
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      }
+
+      if (existing.userId !== userId) {
+        return res.status(403).json({ success: false, error: "No tenés permiso para editar este proveedor" });
+      }
+
+      const allowedFields = [
+        "displayName", "bio", "logoUrl", "coverImageUrl", "city",
+        "department", "serviceRadius", "category", "mainCategory", "subcategories",
+        "priceMin", "priceMax", "priceRange", "businessHours", "deliveryOptions",
+        "availability", "shortDescription", "aboutDescription", "lat", "lng",
+      ];
+
+      const updateData: Record<string, any> = {};
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          updateData[field] = req.body[field];
+        }
+      }
+
+      const updated = await prisma.provider.update({
+        where: { id: providerId },
+        data: updateData,
+      });
+
+      res.json({ success: true, data: updated });
+    } catch(e) {
+      console.error("Update provider error:", e);
+      res.status(500).json({ success: false, error: "Error al actualizar proveedor" });
+    }
+  });
+
+  // GET Catalog Item by ID
+  app.get("/api/catalog-items/:id", async (req, res) => {
+    try {
+      const item = await prisma.catalogItem.findUnique({
+        where: { id: req.params.id },
+        include: { provider: { select: { id: true, displayName: true, city: true, trustScore: true } } },
+      });
+      if (!item) {
+        return res.status(404).json({ success: false, error: "Item no encontrado" });
+      }
+      res.json({ success: true, data: item });
+    } catch (e) {
+      console.error("Get catalog item error:", e);
+      res.status(500).json({ success: false, error: "Error al obtener item" });
+    }
+  });
+
+  // POST Create Catalog Item
+  app.post("/api/catalog-items", authenticate, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const { providerId, title, itemType, category, subcategory, description, priceMin, priceMax, currency, priceUnit, city, availabilityStatus, deliveryAvailable, pickupAvailable, mainImageUrl } = req.body;
+
+      if (!providerId || !title || !itemType || !category || !description) {
+        return res.status(400).json({ success: false, error: "Faltan campos obligatorios" });
+      }
+
+      const provider = await prisma.provider.findUnique({
+        where: { id: providerId },
+        select: { userId: true },
+      });
+      if (!provider || provider.userId !== userId) {
+        return res.status(403).json({ success: false, error: "No tenés permiso para agregar items a este proveedor" });
+      }
+
+      const item = await prisma.catalogItem.create({
+        data: {
+          providerId,
+          title,
+          itemType: itemType || "SERVICIO_ESPECIALIZADO",
+          category,
+          subcategory: subcategory || "",
+          description,
+          priceMin: priceMin ? Number(priceMin) : null,
+          priceMax: priceMax ? Number(priceMax) : null,
+          currency: currency || "NIO",
+          priceUnit: priceUnit || null,
+          city: city || "MANAGUA",
+          availabilityStatus: availabilityStatus || "DISPONIBLE",
+          deliveryAvailable: deliveryAvailable || false,
+          pickupAvailable: pickupAvailable || false,
+          mainImageUrl: mainImageUrl || null,
+        },
+      });
+
+      res.status(201).json({ success: true, data: item });
+    } catch (e) {
+      console.error("Create catalog item error:", e);
+      res.status(500).json({ success: false, error: "Error al crear item" });
+    }
+  });
+
+  // PUT Update Catalog Item
+  app.put("/api/catalog-items/:id", authenticate, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const itemId = req.params.id;
+
+      const existing = await prisma.catalogItem.findUnique({
+        where: { id: itemId },
+        include: { provider: { select: { userId: true } } },
+      });
+
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "Item no encontrado" });
+      }
+
+      if (existing.provider.userId !== userId) {
+        return res.status(403).json({ success: false, error: "No tenés permiso para editar este item" });
+      }
+
+      const allowedFields = ["title", "itemType", "category", "subcategory", "description", "priceMin", "priceMax", "priceUnit", "city", "availabilityStatus", "deliveryAvailable", "pickupAvailable", "mainImageUrl"];
+      const updateData: Record<string, any> = {};
+      for (const field of allowedFields) {
+        if (req.body[field] !== undefined) {
+          if (["priceMin", "priceMax"].includes(field)) {
+            updateData[field] = req.body[field] ? Number(req.body[field]) : null;
+          } else {
+            updateData[field] = req.body[field];
+          }
+        }
+      }
+
+      const updated = await prisma.catalogItem.update({
+        where: { id: itemId },
+        data: updateData,
+      });
+
+      res.json({ success: true, data: updated });
+    } catch (e) {
+      console.error("Update catalog item error:", e);
+      res.status(500).json({ success: false, error: "Error al actualizar item" });
+    }
+  });
+
+  // DELETE Catalog Item
+  app.delete("/api/catalog-items/:id", authenticate, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const itemId = req.params.id;
+
+      const existing = await prisma.catalogItem.findUnique({
+        where: { id: itemId },
+        include: { provider: { select: { userId: true } } },
+      });
+
+      if (!existing) {
+        return res.status(404).json({ success: false, error: "Item no encontrado" });
+      }
+
+      if (existing.provider.userId !== userId) {
+        return res.status(403).json({ success: false, error: "No tenés permiso para eliminar este item" });
+      }
+
+      await prisma.catalogItem.delete({ where: { id: itemId } });
+      res.json({ success: true, message: "Item eliminado" });
+    } catch (e) {
+      console.error("Delete catalog item error:", e);
+      res.status(500).json({ success: false, error: "Error al eliminar item" });
+    }
   });
 
   // GET Formalization Checklist
   app.get("/api/providers/:id/formalization", async (req, res) => {
     try {
-      const rules = formalizations[req.params.id] || [];
-      res.json({ success: true, data: { steps: rules } });
+      const checklist = await prisma.formalizationChecklist.findUnique({
+        where: { providerId: req.params.id },
+      });
+      res.json({ success: true, data: { steps: checklist?.steps || [] } });
     } catch (error) {
-      res.status(500).json({ error: "Internal error" });
+      console.error("Get formalization error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener checklist" });
     }
   });
 
   // PUT Formalization Checklist
-  app.put("/api/providers/:id/formalization", async (req, res) => {
+  app.put("/api/providers/:id/formalization", authenticate, async (req, res) => {
     try {
       const parsed = formalizationUpdateSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "Datos de formalización inválidos", details: parsed.error.issues });
+        return res.status(400).json({ success: false, error: "Datos inválidos", details: parsed.error.issues });
       }
 
       const { stepId, status } = parsed.data;
-      
-      const updated = updateFormalizationStep(req.params.id, stepId, status);
-      
-      if (!updated) {
-         return res.status(404).json({ error: "Step not found" });
+      const providerId = req.params.id;
+
+      // Get existing checklist
+      let checklist = await prisma.formalizationChecklist.findUnique({
+        where: { providerId },
+      });
+
+      if (!checklist) {
+        return res.status(404).json({ success: false, error: "Checklist no encontrado" });
       }
 
-      res.json({ success: true, message: "Estado de formalización actualizado" });
+      // Update the step in the JSON array
+      const steps = checklist.steps as Array<{ id: string; title: string; description: string; status: string }>;
+      let stepFound = false;
+      let nextCurrentIndex = -1;
+
+      for (let i = 0; i < steps.length; i++) {
+        if (steps[i].id === stepId) {
+          steps[i].status = status;
+          stepFound = true;
+          if (status === "completed") {
+            nextCurrentIndex = i + 1;
+          }
+        }
+      }
+
+      if (!stepFound) {
+        return res.status(404).json({ success: false, error: "Step no encontrado" });
+      }
+
+      // Auto-advance next pending step to current
+      if (nextCurrentIndex !== -1 && nextCurrentIndex < steps.length) {
+        if (steps[nextCurrentIndex].status === "pending") {
+          steps[nextCurrentIndex].status = "current";
+        }
+      }
+
+      const updated = await prisma.formalizationChecklist.update({
+        where: { providerId },
+        data: { steps },
+      });
+
+      res.json({ success: true, message: "Estado de formalización actualizado", data: { steps: updated.steps } });
     } catch (error) {
-      res.status(500).json({ error: "Error interno del servidor al actualizar formalización" });
+      console.error("Update formalization error:", error);
+      res.status(500).json({ success: false, error: "Error al actualizar formalización" });
+    }
+  });
+
+  // GET Reviews by Provider
+  app.get("/api/providers/:id/reviews", async (req, res) => {
+    try {
+      const reviews = await prisma.review.findMany({
+        where: { providerId: req.params.id },
+        include: { reviewer: { select: { id: true, name: true, image: true } } },
+        orderBy: { createdAt: "desc" },
+      });
+      res.json({ success: true, data: reviews });
+    } catch (error) {
+      console.error("Get reviews error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener reseñas" });
+    }
+  });
+
+  // POST Create Review
+  app.post("/api/reviews", authenticate, async (req, res) => {
+    try {
+      const { providerId, qualityScore, responseTimeScore, fulfillmentScore, communicationScore, valueScore, comment } = req.body;
+      const { userId } = (req as any).user;
+
+      if (!providerId || !qualityScore) {
+        return res.status(400).json({ success: false, error: "Faltan campos obligatorios" });
+      }
+
+      const generalScore = (qualityScore + (responseTimeScore || qualityScore) + (fulfillmentScore || qualityScore) + (communicationScore || qualityScore) + (valueScore || qualityScore)) / 5;
+
+      const review = await prisma.review.create({
+        data: {
+          providerId,
+          reviewerId: userId,
+          qualityScore,
+          responseTimeScore: responseTimeScore || qualityScore,
+          fulfillmentScore: fulfillmentScore || qualityScore,
+          communicationScore: communicationScore || qualityScore,
+          valueScore: valueScore || qualityScore,
+          generalScore,
+          comment,
+        },
+        include: { reviewer: { select: { id: true, name: true, image: true } } },
+      });
+
+      res.status(201).json({ success: true, data: review });
+    } catch (error) {
+      console.error("Create review error:", error);
+      res.status(500).json({ success: false, error: "Error al crear reseña" });
     }
   });
 

@@ -14,7 +14,7 @@ export default function DashboardLayout() {
     <div className="flex flex-col md:flex-row h-screen h-[100dvh] w-full bg-slate-50 overflow-hidden">
       <aside className="w-full md:w-64 bg-white border-b md:border-b-0 md:border-r border-slate-200 shrink-0 flex flex-col h-auto md:h-full z-10">
         <div className="p-6 shrink-0">
-          <Link to="/" className="text-xl font-bold tracking-tight text-blue-600 mb-4 block">
+          <Link to="/" className="text-xl font-bold tracking-tight text-[var(--brand-dark)] mb-4 block">
             Conecta Emprende AI
           </Link>
           <h2 className="text-lg font-bold text-slate-900">Mi Panel</h2>
@@ -25,16 +25,16 @@ export default function DashboardLayout() {
             const Icon = item.icon;
             const isActive = location.pathname === item.path;
             return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
-                  isActive 
-                    ? 'bg-blue-50 text-blue-700' 
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-                }`}
-              >
-                <Icon className={`w-5 h-5 ${isActive ? 'text-blue-700' : 'text-slate-400'}`} />
+<Link
+                  key={item.path}
+                  to={item.path}
+                  className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors whitespace-nowrap ${
+                    isActive 
+                      ? 'bg-[color-mix(in_oklch,var(--brand)_12%,white)] text-[var(--brand-dark)]' 
+                      : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                  }`}
+                >
+                  <Icon className={`w-5 h-5 ${isActive ? 'text-[var(--brand-dark)]' : 'text-slate-400'}`} />
                 {item.name}
               </Link>
             );

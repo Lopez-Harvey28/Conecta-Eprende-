@@ -1,20 +1,485 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Circle, MessageCircle, Search, Send, Star, UserRound } from "lucide-react";
-import { CREATIVE_CITIES, priceLabel, type PriceRange, type RequestStatus } from "../lib/mvp-data";
-import { useMvpStore } from "../stores/mvp-store";
+import { CREATIVE_CITIES, priceLabel, type PriceRange } from "../lib/mvp-data";
+import { useAuthStore } from "../stores/auth-store";
+import { useProvidersStore } from "../stores/providers-store";
+import { useQuotesStore } from "../stores/quotes-store";
 import { EmptyState, PageHeader, RequestStatusBadge } from "../components/mvp/Ui";
 
-export function NewRequestPage(){
-  const [params]=useSearchParams(); const providerId=params.get("providerId")||""; const productId=params.get("productId");
-  const provider=useMvpStore(state=>state.providers.find(item=>item.id===providerId)); const offer=useMvpStore(state=>state.offers.find(item=>item.id===productId)); const create=useMvpStore(state=>state.createRequest); const current=useMvpStore(state=>state.currentUser); const navigate=useNavigate();
-  const [form,setForm]=useState({title:offer?`Consulta: ${offer.name}`:"",description:offer?`Me interesa ${offer.name}. Quisiera confirmar alcance, precio final y tiempo de entrega.`:"",date:"",budget:"" as PriceRange|"",location:provider?.city||"Managua",contact:"Mensajes de la plataforma"}); const [errors,setErrors]=useState<Record<string,string>>({});
-  if(!provider)return <EmptyState title="Elegí un proveedor primero">Volvé a la búsqueda para iniciar una solicitud.</EmptyState>;
-  const submit=(event:FormEvent)=>{event.preventDefault();const next:Record<string,string>={};if(!form.title.trim())next.title="Escribí un título.";if(form.description.trim().length<20)next.description="Contanos un poco más, al menos 20 caracteres.";setErrors(next);if(Object.keys(next).length)return;const id=crypto.randomUUID();const timestamp=new Date().toISOString();create({id,requesterId:current.id,requesterName:current.name,providerId,productId:offer?.id||null,title:form.title,description:form.description,budgetRange:form.budget||undefined,location:form.location as any,contactPreference:form.contact,status:"OPEN",createdAt:timestamp,updatedAt:timestamp,unreadByProvider:1,unreadByRequester:0,messages:[{id:crypto.randomUUID(),author:"system",senderId:"SYSTEM",type:"SYSTEM",text:"Esta conversación queda vinculada a tu solicitud para dar seguimiento y dejar una reseña verificada al finalizar.",createdAt:timestamp},{id:crypto.randomUUID(),author:"requester",senderId:current.id,type:"TEXT",text:form.description,createdAt:timestamp}]});navigate(`/requests/${id}/chat`);};
-  return <div className="narrow-page"><Link to={`/providers/${provider.id}`} className="back-link"><ArrowLeft/> Volver al perfil</Link><PageHeader eyebrow="Nueva solicitud" title={`Cotizá con ${provider.publicName}`} description="La solicitud abrirá una conversación protegida dentro de la plataforma."/>{offer&&<section className="selected-offer"><img src={offer.imageUrls[0]} alt=""/><div><span className="eyebrow">Oferta seleccionada</span><h2>{offer.name}</h2><p>{offer.priceLabel} · {offer.estimatedDelivery}</p></div></section>}<form className="form-panel" onSubmit={submit}><label>Título de la solicitud<input value={form.title} onChange={event=>setForm({...form,title:event.target.value})} placeholder="Ej. 200 empaques para café"/>{errors.title&&<span className="field-error">{errors.title}</span>}</label><label>Descripción<textarea rows={6} value={form.description} onChange={event=>setForm({...form,description:event.target.value})} placeholder="Cantidad, medidas, materiales y cualquier detalle importante…"/>{errors.description&&<span className="field-error">{errors.description}</span>}</label><div className="form-grid"><label>Fecha deseada<input type="date" value={form.date} onChange={event=>setForm({...form,date:event.target.value})}/></label><label>Presupuesto<select value={form.budget} onChange={event=>setForm({...form,budget:event.target.value as PriceRange})}><option value="">Sin definir</option>{Object.entries(priceLabel).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>Ciudad<select value={form.location} onChange={event=>setForm({...form,location:event.target.value as any})}>{CREATIVE_CITIES.map(city=><option key={city}>{city}</option>)}</select></label><label>Canal principal<select value={form.contact} onChange={event=>setForm({...form,contact:event.target.value})}><option>Mensajes de la plataforma</option><option disabled>Contacto externo no disponible para el MVP</option></select></label></div><p className="form-note">Mantener la conversación acá permite confirmar el trabajo y desbloquear una reseña verificada.</p><button className="button primary"><MessageCircle/> Chatear y solicitar cotización</button></form></div>;
+const statusLabel: Record<string, string> = {
+  OPEN: "Abierta",
+  IN_CONVERSATION: "En conversación",
+  QUOTE_SENT: "Cotización enviada",
+  QUOTE_ACCEPTED: "Cotización aceptada",
+  COMPLETED: "Completada",
+  CLOSED_REQUESTER: "Cerrada por cliente",
+  CLOSED_PROVIDER: "Cerrada por proveedor",
+  CANCELLED: "Cancelada",
+};
+
+const tabs = [
+  { label: "Activas", statuses: ["OPEN", "IN_CONVERSATION", "QUOTE_SENT", "QUOTE_ACCEPTED"] },
+  { label: "No leídas", statuses: ["OPEN", "IN_CONVERSATION", "QUOTE_SENT", "QUOTE_ACCEPTED"] },
+  { label: "Completadas", statuses: ["COMPLETED"] },
+  { label: "Cerradas", statuses: ["CLOSED_PROVIDER", "CLOSED_REQUESTER", "CANCELLED"] },
+];
+
+export function NewRequestPage() {
+  const [params] = useSearchParams();
+  const providerId = params.get("providerId") || "";
+  const productId = params.get("productId");
+  const { getProvider, currentProvider } = useProvidersStore();
+  const { createThread } = useQuotesStore();
+  const { user } = useAuthStore();
+  const navigate = useNavigate();
+
+  const [form, setForm] = useState({
+    title: "",
+    description: "",
+    date: "",
+    budget: "" as PriceRange | "",
+    location: "Managua",
+    contact: "Mensajes de la plataforma",
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const provider = currentProvider?.provider;
+
+  useState(() => {
+    if (providerId) {
+      getProvider(providerId);
+    }
+  });
+
+  useState(() => {
+    if (productId) {
+      // Try to find the offer in provider's catalog items
+    }
+  });
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    const next: Record<string, string> = {};
+    if (!form.title.trim()) next.title = "Escribí un título.";
+    if (form.description.trim().length < 20) next.description = "Contanos un poco más, al menos 20 caracteres.";
+    setErrors(next);
+    if (Object.keys(next).length) return;
+
+    setIsSubmitting(true);
+    try {
+      const thread = await createThread({
+        providerId,
+        subject: form.title,
+        body: form.description,
+        catalogItemId: productId || undefined,
+      });
+      if (thread) {
+        navigate(`/requests/${thread.id}/chat`);
+      }
+    } catch (e) {
+      setErrors({ submit: "No se pudo crear la solicitud. Intentá de nuevo." });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  if (!providerId) {
+    return (
+      <EmptyState title="Elegí un proveedor primero">
+        Volvé a la búsqueda para iniciar una solicitud.
+      </EmptyState>
+    );
+  }
+
+  return (
+    <div className="narrow-page">
+      <Link to={`/providers/${providerId}`} className="back-link">
+        <ArrowLeft /> Volver al perfil
+      </Link>
+      <PageHeader
+        eyebrow="Nueva solicitud"
+        title={provider ? `Cotizá con ${provider.displayName}` : "Nueva solicitud"}
+        description="La solicitud abrirá una conversación protegida dentro de la plataforma."
+      />
+      <form className="form-panel" onSubmit={handleSubmit}>
+        <label>
+          Título de la solicitud
+          <input
+            value={form.title}
+            onChange={event => setForm({ ...form, title: event.target.value })}
+            placeholder="Ej. 200 empaques para café"
+          />
+          {errors.title && <span className="field-error">{errors.title}</span>}
+        </label>
+        <label>
+          Descripción
+          <textarea
+            rows={6}
+            value={form.description}
+            onChange={event => setForm({ ...form, description: event.target.value })}
+            placeholder="Cantidad, medidas, materiales y cualquier detalle importante…"
+          />
+          {errors.description && <span className="field-error">{errors.description}</span>}
+        </label>
+        <div className="form-grid">
+          <label>
+            Fecha deseada
+            <input type="date" value={form.date} onChange={event => setForm({ ...form, date: event.target.value })} />
+          </label>
+          <label>
+            Presupuesto
+            <select
+              value={form.budget}
+              onChange={event => setForm({ ...form, budget: event.target.value as PriceRange })}
+            >
+              <option value="">Sin definir</option>
+              {Object.entries(priceLabel).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Ciudad
+            <select
+              value={form.location}
+              onChange={event => setForm({ ...form, location: event.target.value })}
+            >
+              {CREATIVE_CITIES.map(city => (
+                <option key={city}>{city}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Canal principal
+            <select
+              value={form.contact}
+              onChange={event => setForm({ ...form, contact: event.target.value })}
+            >
+              <option>Mensajes de la plataforma</option>
+              <option disabled>Contacto externo no disponible para el MVP</option>
+            </select>
+          </label>
+        </div>
+        {errors.submit && <p className="field-error">{errors.submit}</p>}
+        <p className="form-note">
+          Mantener la conversación acá permite confirmar el trabajo y desbloquear una reseña verificada.
+        </p>
+        <button className="button primary" disabled={isSubmitting}>
+          <MessageCircle /> {isSubmitting ? "Creando..." : "Chatear y solicitar cotización"}
+        </button>
+      </form>
+    </div>
+  );
 }
 
-const tabs:{label:string;statuses:RequestStatus[]}[]=[{label:"Activas",statuses:["OPEN","IN_CONVERSATION","QUOTE_SENT","QUOTE_ACCEPTED"]},{label:"No leídas",statuses:["OPEN","IN_CONVERSATION","QUOTE_SENT","QUOTE_ACCEPTED"]},{label:"Completadas",statuses:["COMPLETED"]},{label:"Cerradas",statuses:["CLOSED_PROVIDER","CLOSED_REQUESTER","CANCELLED"]}];
-export function RequestsPage(){const requests=useMvpStore(state=>state.requests);const providers=useMvpStore(state=>state.providers);const offers=useMvpStore(state=>state.offers);const [tab,setTab]=useState(0);const list=requests.filter(request=>tabs[tab].statuses.includes(request.status)).filter(request=>tab!==1||request.unreadByProvider+request.unreadByRequester>0);return <div className="content-page"><PageHeader eyebrow="Bandeja comercial" title="Solicitudes y conversaciones" description="Cada conversación conserva el alcance, la cotización y el estado del acuerdo."/><div className="tabs">{tabs.map((item,index)=><button className={tab===index?"active":""} onClick={()=>setTab(index)} key={item.label}>{item.label}<span>{requests.filter(request=>item.statuses.includes(request.status)).filter(request=>index!==1||request.unreadByProvider+request.unreadByRequester>0).length}</span></button>)}</div>{list.length?<div className="request-list">{list.map(request=>{const provider=providers.find(item=>item.id===request.providerId);const offer=offers.find(item=>item.id===request.productId);const unread=request.unreadByProvider+request.unreadByRequester;return <Link to={`/requests/${request.id}/chat`} className="request-row" key={request.id}><div className="request-icon"><MessageCircle/></div><div><div className="request-meta"><RequestStatusBadge status={request.status}/>{unread>0&&<span className="unread-badge">{unread} nuevas</span>}<time>{new Date(request.updatedAt).toLocaleDateString("es-NI")}</time></div><h2>{request.title}</h2><p>{provider?.publicName}{offer?` · ${offer.name}`:""} · {request.messages.at(-1)?.text}</p></div><span className="button secondary">Abrir chat</span></Link>})}</div>:<EmptyState icon={<Search/>} title="No hay conversaciones en esta vista">Iniciá una solicitud desde un perfil o producto para mantener el acuerdo organizado.</EmptyState>}</div>}
+export function RequestsPage() {
+  const { user, isAuthenticated } = useAuthStore();
+  const { threads, fetchThreadsByProvider, fetchThreadsBySender, isLoading } = useQuotesStore();
+  const { currentProvider } = useProvidersStore();
+  const [tab, setTab] = useState(0);
+  const [activeTab, setActiveTab] = useState("");
 
-export function RequestDetailPage(){const {requestId}=useParams();const request=useMvpStore(state=>state.requests.find(item=>item.id===requestId));const provider=useMvpStore(state=>state.providers.find(item=>item.id===request?.providerId));const offer=useMvpStore(state=>state.offers.find(item=>item.id===request?.productId));const confirm=useMvpStore(state=>state.confirmRequest);const close=useMvpStore(state=>state.closeRequest);const addReview=useMvpStore(state=>state.addReview);const reviews=useMvpStore(state=>state.reviews);const current=useMvpStore(state=>state.currentUser);const [score,setScore]=useState(5);const [review,setReview]=useState("");if(!request)return <EmptyState title="Solicitud no encontrada">Revisá el enlace o volvé a Mis solicitudes.</EmptyState>;const reviewed=reviews.some(item=>item.requestId===request.id&&item.reviewerId===current.id);return <div className="content-page"><Link to="/requests" className="back-link"><ArrowLeft/> Mis solicitudes</Link><PageHeader eyebrow="Detalle de solicitud" title={request.title} description={`${provider?.publicName} · ${offer?.name||"Solicitud general"} · ${request.location||"Ubicación por acordar"}`} actions={<div className="page-actions"><RequestStatusBadge status={request.status}/><Link className="button primary" to={`/requests/${request.id}/chat`}><MessageCircle/> Abrir conversación</Link></div>}/><div className="detail-grid"><main><section className="content-section"><h2>Necesidad compartida</h2><p>{request.description}</p>{request.quotedPriceLabel&&<div className="quote-detail"><strong>{request.quotedPriceLabel}</strong><span>Entrega: {request.quotedDeliveryTime}</span></div>}</section><section className="content-section"><h2>Resumen de conversación</h2><p>{request.messages.length} mensajes vinculados a esta solicitud.</p><Link className="button secondary" to={`/requests/${request.id}/chat`}>Ver todos los mensajes</Link></section>{request.status==="COMPLETED"&&<section className="content-section"><h2>Reseña del trabajo</h2>{reviewed?<p className="success-note"><CheckCircle2/> Ya publicaste una reseña para este trabajo.</p>:<form onSubmit={event=>{event.preventDefault();addReview({id:crypto.randomUUID(),requestId:request.id,reviewerId:current.id,providerId:request.providerId,score,text:review,createdAt:new Date().toISOString()});}}><div className="rating">{[1,2,3,4,5].map(value=><button type="button" className={value<=score?"active":""} onClick={()=>setScore(value)} key={value}><Star/></button>)}</div><textarea required minLength={10} value={review} onChange={event=>setReview(event.target.value)} placeholder="¿Cómo fue trabajar con este proveedor?"/><button className="button primary">Publicar reseña</button></form>}</section>}</main><aside><section className="content-section"><h2>Estado del acuerdo</h2><div className="timeline"><div className="done"><CheckCircle2/><span><strong>Solicitud enviada</strong>{new Date(request.createdAt).toLocaleDateString("es-NI")}</span></div><div className={request.status!=="OPEN"?"done":""}><Circle/><span><strong>Conversación iniciada</strong>Respuesta entre las partes</span></div><div className={request.status==="QUOTE_SENT"||request.status==="QUOTE_ACCEPTED"||request.status==="COMPLETED"?"done":""}><Circle/><span><strong>Cotización</strong>{request.quotedPriceLabel||"Pendiente"}</span></div><div className={request.confirmedByRequesterAt?"done":""}><Circle/><span><strong>Cliente confirmó</strong>{request.confirmedByRequesterAt?"Registrado":"Pendiente"}</span></div><div className={request.confirmedByProviderAt?"done":""}><Circle/><span><strong>Proveedor confirmó</strong>{request.confirmedByProviderAt?"Registrado":"Pendiente"}</span></div></div>{request.status!=="COMPLETED"&&<><p className="form-note">Esperando confirmación de la otra parte para completar la solicitud.</p><div className="stack-actions"><button className="button primary" disabled={!!request.confirmedByRequesterAt} onClick={()=>confirm(request.id,"requester")}>Confirmar como cliente</button><button className="button secondary" disabled={!!request.confirmedByProviderAt} onClick={()=>confirm(request.id,"provider")}>Confirmar como proveedor</button><button className="text-button danger" onClick={()=>close(request.id,"provider")}>Cerrar mi parte</button></div></>}</section><section className="content-section"><h2>Participantes</h2><p><UserRound/> {request.requesterName}</p><p><UserRound/> {provider?.publicName}</p></section></aside></div></div>}
+  useState(() => {
+    if (!isAuthenticated || !user) return;
+    if (user.role === "PROVIDER" && user.providers?.[0]?.id) {
+      fetchThreadsByProvider(user.providers[0].id);
+    } else {
+      fetchThreadsBySender(user.id);
+    }
+  });
+
+  const list = threads.filter(thread => tabs[tab].statuses.includes(thread.status));
+
+  return (
+    <div className="content-page">
+      <PageHeader
+        eyebrow="Bandeja comercial"
+        title="Solicitudes y conversaciones"
+        description="Cada conversación conserva el alcance, la cotización y el estado del acuerdo."
+      />
+      <div className="tabs">
+        {tabs.map((item, index) => (
+          <button
+            className={tab === index ? "active" : ""}
+            onClick={() => setTab(index)}
+            key={item.label}
+          >
+            {item.label}
+            <span>
+              {threads.filter(thread => item.statuses.includes(thread.status)).length}
+            </span>
+          </button>
+        ))}
+      </div>
+      {isLoading ? (
+        <EmptyState title="Cargando...">Obteniendo conversaciones...</EmptyState>
+      ) : list.length === 0 ? (
+        <EmptyState icon={<Search />} title="No hay conversaciones en esta vista">
+          Iniciá una solicitud desde un perfil o producto para mantener el acuerdo organizado.
+        </EmptyState>
+      ) : (
+        <div className="request-list">
+          {list.map(thread => (
+            <Link to={`/requests/${thread.id}/chat`} className="request-row" key={thread.id}>
+              <div className="request-icon">
+                <MessageCircle />
+              </div>
+              <div>
+                <div className="request-meta">
+                  <RequestStatusBadge status={thread.status as any} />
+                  <time>{thread.dateLabel || new Date(thread.createdAt).toLocaleDateString("es-NI")}</time>
+                </div>
+                <h2>{thread.subject}</h2>
+                <p>
+                  {thread.providerDisplayName || "Proveedor"}
+                  {thread.catalogItemId ? " · Producto" : ""} · {thread.messages.at(-1)?.text}
+                </p>
+              </div>
+              <span className="button secondary">Abrir chat</span>
+            </Link>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function RequestDetailPage() {
+  const { requestId } = useParams();
+  const { user } = useAuthStore();
+  const { getThread, currentThread, updateThread } = useQuotesStore();
+  const { currentProvider, getProvider } = useProvidersStore();
+  const [score, setScore] = useState(5);
+  const [review, setReview] = useState("");
+  const [isReviewing, setIsReviewing] = useState(false);
+
+  const thread = currentThread;
+  const provider = currentProvider?.provider;
+
+  useState(() => {
+    if (requestId) {
+      getThread(requestId);
+    }
+  });
+
+  useState(() => {
+    if (thread?.providerId) {
+      getProvider(thread.providerId);
+    }
+  });
+
+  const handleConfirm = async (as: "requester" | "provider") => {
+    if (!thread) return;
+    try {
+      if (as === "requester") {
+        await updateThread(thread.id, { confirmedByRequesterAt: new Date().toISOString() });
+      } else {
+        await updateThread(thread.id, { confirmedByProviderAt: new Date().toISOString(), status: "COMPLETED" });
+      }
+    } catch (e) {
+      console.error("Confirm error:", e);
+    }
+  };
+
+  const handleClose = async () => {
+    if (!thread) return;
+    try {
+      await updateThread(thread.id, {
+        status: user?.role === "PROVIDER" ? "CLOSED_PROVIDER" : "CLOSED_REQUESTER",
+      });
+    } catch (e) {
+      console.error("Close error:", e);
+    }
+  };
+
+  const handleAddReview = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!thread || !user) return;
+    setIsReviewing(true);
+    try {
+      const res = await fetch("/api/reviews", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          providerId: thread.providerId,
+          qualityScore: score,
+          responseTimeScore: score,
+          fulfillmentScore: score,
+          communicationScore: score,
+          valueScore: score,
+          comment: review,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setReview("");
+        setScore(5);
+      }
+    } catch (e) {
+      console.error("Review error:", e);
+    } finally {
+      setIsReviewing(false);
+    }
+  };
+
+  if (!requestId) {
+    return (
+      <EmptyState title="Solicitud no encontrada">
+        Revisá el enlace o volvé a Mis solicitudes.
+      </EmptyState>
+    );
+  }
+
+  if (!thread) {
+    return (
+      <EmptyState title="Cargando...">
+        Obteniendo detalles de la solicitud...
+      </EmptyState>
+    );
+  }
+
+  return (
+    <div className="content-page">
+      <Link to="/requests" className="back-link">
+        <ArrowLeft /> Mis solicitudes
+      </Link>
+      <PageHeader
+        eyebrow="Detalle de solicitud"
+        title={thread.subject}
+        description={`${provider?.displayName || "Proveedor"} · ${thread.catalogItemId ? "Producto" : "Solicitud general"} · ${thread.quotedPriceLabel || "Ubicación por acordar"}`}
+        actions={
+          <div className="page-actions">
+            <RequestStatusBadge status={thread.status as any} />
+            <Link className="button primary" to={`/requests/${thread.id}/chat`}>
+              <MessageCircle /> Abrir conversación
+            </Link>
+          </div>
+        }
+      />
+      <div className="detail-grid">
+        <main>
+          <section className="content-section">
+            <h2>Necesidad compartida</h2>
+            <p>{thread.messages.find(m => m.authorRole === "client" || m.author === "client")?.body || "Sin descripción"}</p>
+            {thread.quotedPriceLabel && (
+              <div className="quote-detail">
+                <strong>{thread.quotedPriceLabel}</strong>
+                <span>Entrega: {thread.quotedDeliveryTime || "Por acordar"}</span>
+              </div>
+            )}
+          </section>
+          <section className="content-section">
+            <h2>Resumen de conversación</h2>
+            <p>{thread.messages.length} mensajes vinculados a esta solicitud.</p>
+            <Link className="button secondary" to={`/requests/${thread.id}/chat`}>
+              Ver todos los mensajes
+            </Link>
+          </section>
+          {thread.status === "COMPLETED" && (
+            <section className="content-section">
+              <h2>Reseña del trabajo</h2>
+              <p className="success-note">
+                <CheckCircle2 /> El trabajo fue completado. Podés dejar una reseña.
+              </p>
+              <form onSubmit={handleAddReview}>
+                <div className="rating">
+                  {[1, 2, 3, 4, 5].map(value => (
+                    <button type="button" className={value <= score ? "active" : ""} onClick={() => setScore(value)} key={value}>
+                      <Star />
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  required
+                  minLength={10}
+                  value={review}
+                  onChange={event => setReview(event.target.value)}
+                  placeholder="¿Cómo fue trabajar con este proveedor?"
+                />
+                <button className="button primary" disabled={isReviewing}>
+                  {isReviewing ? "Publicando..." : "Publicar reseña"}
+                </button>
+              </form>
+            </section>
+          )}
+        </main>
+        <aside>
+          <section className="content-section">
+            <h2>Estado del acuerdo</h2>
+            <div className="timeline">
+              <div className="done">
+                <CheckCircle2 />
+                <span>
+                  <strong>Solicitud enviada</strong>
+                  {new Date(thread.createdAt).toLocaleDateString("es-NI")}
+                </span>
+              </div>
+              <div className={thread.status !== "OPEN" ? "done" : ""}>
+                <Circle />
+                <span>
+                  <strong>Conversación iniciada</strong>
+                  Respuesta entre las partes
+                </span>
+              </div>
+              <div className={["QUOTE_SENT", "QUOTE_ACCEPTED", "COMPLETED"].includes(thread.status) ? "done" : ""}>
+                <Circle />
+                <span>
+                  <strong>Cotización</strong>
+                  {thread.quotedPriceLabel || "Pendiente"}
+                </span>
+              </div>
+              <div className={thread.confirmedByRequesterAt ? "done" : ""}>
+                <Circle />
+                <span>
+                  <strong>Cliente confirmó</strong>
+                  {thread.confirmedByRequesterAt ? "Registrado" : "Pendiente"}
+                </span>
+              </div>
+              <div className={thread.confirmedByProviderAt ? "done" : ""}>
+                <Circle />
+                <span>
+                  <strong>Proveedor confirmó</strong>
+                  {thread.confirmedByProviderAt ? "Registrado" : "Pendiente"}
+                </span>
+              </div>
+            </div>
+            {thread.status !== "COMPLETED" && (
+              <>
+                <p className="form-note">
+                  Esperando confirmación de la otra parte para completar la solicitud.
+                </p>
+                <div className="stack-actions">
+                  <button
+                    className="button primary"
+                    disabled={!!thread.confirmedByRequesterAt || user?.role !== "PROVIDER"}
+                    onClick={() => handleConfirm("requester")}
+                  >
+                    Confirmar como cliente
+                  </button>
+                  <button
+                    className="button secondary"
+                    disabled={!!thread.confirmedByProviderAt || user?.role !== "PROVIDER"}
+                    onClick={() => handleConfirm("provider")}
+                  >
+                    Confirmar como proveedor
+                  </button>
+                  <button className="text-button danger" onClick={handleClose}>
+                    Cerrar mi parte
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+          <section className="content-section">
+            <h2>Participantes</h2>
+            <p><UserRound /> {thread.clientName || "Cliente"}</p>
+            <p><UserRound /> {provider?.displayName || "Proveedor"}</p>
+          </section>
+        </aside>
+      </div>
+    </div>
+  );
+}

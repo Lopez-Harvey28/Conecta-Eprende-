@@ -10,6 +10,8 @@ assert.equal(snapshot.schemaVersion,1);
 assert.equal(snapshot.identity.schemaVersion,1);
 assert.ok(snapshot.identity.accounts.length>=2);
 assert.ok(snapshot.providerProfiles.every(profile=>snapshot.identity.accounts.some(account=>account.id===profile.ownerUserId)));
+assert.ok(snapshot.identity.roleAssignments.some(role=>role.role==="SUPER_ADMIN"&&role.userId==="user-provider"));
+assert.ok(snapshot.identity.roleAssignments.some(role=>role.role==="ADMIN_REVIEWER"&&role.userId==="user-provider"));
 assert.ok(!("session" in decoded),"Authentication session must not be serialized with domain data");
 assert.ok(!("currentUser" in decoded),"Derived current-user view must not be serialized");
 assert.deepEqual(parseIdentityData(snapshot.identity),snapshot.identity);

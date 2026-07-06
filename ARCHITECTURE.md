@@ -64,7 +64,7 @@
 
 - `UserAccount` representa identidad y estado de acceso. No contiene un tipo exclusivo de usuario.
 - `ClientProfile` y `ProviderProfile` son perfiles opcionales vinculados por `userId`/`ownerUserId`. Una cuenta puede tener ambos.
-- `RoleAssignment` guarda permisos transversales (`USER`, `MODERATOR`, `ADMIN`). Ser proveedor no es un rol administrativo.
+- `RoleAssignment` guarda permisos transversales (`REQUESTER`, `PROVIDER`, `ADMIN_REVIEWER`, `SUPER_ADMIN`). Ser proveedor no es un permiso administrativo público.
 - `AuthSessionDTO` contiene únicamente la sesión emitida por login: `sessionId`, `userId`, permisos y vencimiento. Vive en `auth-store` sin persistencia.
 - `createMarketplaceSnapshot()` exporta identidad y datos comerciales con versión de esquema, pero excluye deliberadamente sesión y usuario actual derivado.
 - Mientras se conecta el login real, `/api/auth/session` sin sesión activa activa una cuenta bootstrap administradora que también posee `provider-1`. No existe selector local para elevar permisos.

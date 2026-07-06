@@ -14,7 +14,7 @@ interface AuthState {
 
 function createBootstrapAdminSession():AuthSessionDTO {
   const issuedAt=new Date();
-  return{sessionId:"bootstrap-admin-session",userId:"user-provider",systemRoles:["USER","ADMIN"],issuedAt:issuedAt.toISOString(),expiresAt:new Date(issuedAt.getTime()+8*60*60*1000).toISOString()};
+  return{sessionId:"bootstrap-admin-session",userId:"user-provider",systemRoles:["REQUESTER","PROVIDER","ADMIN_REVIEWER","SUPER_ADMIN"],issuedAt:issuedAt.toISOString(),expiresAt:new Date(issuedAt.getTime()+8*60*60*1000).toISOString()};
 }
 
 function isSession(value:unknown):value is AuthSessionDTO {

@@ -1,5 +1,6 @@
 export type AccountStatus = "ACTIVE" | "SUSPENDED" | "DELETED";
-export type SystemRole = "USER" | "MODERATOR" | "ADMIN";
+export type Role = "REQUESTER" | "PROVIDER" | "ADMIN_REVIEWER" | "SUPER_ADMIN";
+export type SystemRole = Role;
 
 export interface UserAccount {
   id:string;
@@ -29,6 +30,90 @@ export interface RoleAssignment {
   grantedAt:string;
   grantedByUserId:string|null;
 }
+
+export type User = {
+  id:string;
+  name:string;
+  email:string;
+  roles:Role[];
+  requesterProfileId?:string;
+  providerProfileId?:string;
+  accountStatus?:"ACTIVE"|"SUSPENDED";
+  createdAt?:string;
+};
+
+export type RequesterProfile = {
+  id:string;
+  userId:string;
+  displayName:string;
+  city?:string;
+  avatarUrl?:string;
+  createdAt?:string;
+  updatedAt?:string;
+};
+
+export type CatalogItem = {
+  id:string;
+  providerProfileId:string;
+  name:string;
+  type:"PRODUCT"|"SERVICE"|"SUPPLY"|"RAW_MATERIAL"|"PRODUCTIVE_EQUIPMENT"|"EQUIPMENT_RENTAL"|"REPAIR"|"MAINTENANCE"|"TRAINING";
+  category:string;
+  subcategory?:string;
+  description:string;
+  minPrice?:number;
+  maxPrice?:number;
+  currency?:"NIO"|"USD";
+  unit?:string;
+  city?:string;
+  available:boolean;
+  imageUrl?:string;
+};
+
+export type ProviderRequestStatus = "OPEN"|"IN_CONVERSATION"|"CLOSED_BY_REQUESTER"|"CLOSED_BY_PROVIDER"|"COMPLETED_PENDING_CONFIRMATION"|"COMPLETED"|"CANCELLED"|"REPORTED";
+
+export type ProviderRequest = {
+  id:string;
+  requesterUserId:string;
+  requesterProfileId?:string;
+  requesterProviderProfileId?:string|null;
+  targetProviderProfileId:string;
+  catalogItemId?:string|null;
+  title:string;
+  description:string;
+  status:ProviderRequestStatus;
+  budgetEstimate?:number|null;
+  requestedDate?:string|null;
+  confirmedByRequesterAt?:string|null;
+  confirmedByProviderAt?:string|null;
+  completedAt?:string|null;
+  createdAt:string;
+  updatedAt?:string;
+};
+
+export type VerifiedReview = {
+  id:string;
+  requestId:string;
+  reviewerUserId:string;
+  reviewedProviderProfileId:string;
+  score:number;
+  text?:string;
+  createdAt:string;
+};
+
+export type RiskReport = {
+  id:string;
+  providerProfileId:string;
+  riskScore:number;
+  suspiciousCyclesCount:number;
+  avgSearchTimeSeconds?:number;
+  avgRequestToCompletionMinutes?:number;
+  avgMessagesPerRequest?:number;
+  newAccountsPercentage?:number;
+  ratingConcentrationScore?:number;
+  generatedAt:string;
+  status:"PENDING"|"REVIEWED"|"DISMISSED"|"CONFIRMED";
+  recommendedAction:string;
+};
 
 /** Returned by the real login/session endpoint. Never persisted with domain data. */
 export interface AuthSessionDTO {

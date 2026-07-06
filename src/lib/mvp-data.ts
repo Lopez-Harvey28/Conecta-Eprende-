@@ -140,8 +140,10 @@ export const seedAccounts:UserAccount[]=[
 ];
 export const seedClientProfiles:ClientProfile[]=[{id:"client-profile-1",userId:"user-client",publicName:"Andrea López",city:"Managua",avatarUrl:null,createdAt:identityTimestamp,updatedAt:identityTimestamp}];
 export const seedRoleAssignments:RoleAssignment[]=[
-  ...seedAccounts.map((account,index)=>({id:`role-user-${index+1}`,userId:account.id,role:"USER" as const,grantedAt:identityTimestamp,grantedByUserId:null})),
-  {id:"role-admin-1",userId:"user-provider",role:"ADMIN",grantedAt:identityTimestamp,grantedByUserId:null},
+  ...seedAccounts.map((account,index)=>({id:`role-requester-${index+1}`,userId:account.id,role:"REQUESTER" as const,grantedAt:identityTimestamp,grantedByUserId:null})),
+  ...seedProviders.map((provider,index)=>({id:`role-provider-${index+1}`,userId:provider.ownerUserId,role:"PROVIDER" as const,grantedAt:identityTimestamp,grantedByUserId:null})),
+  {id:"role-admin-reviewer-1",userId:"user-provider",role:"ADMIN_REVIEWER",grantedAt:identityTimestamp,grantedByUserId:null},
+  {id:"role-super-admin-1",userId:"user-provider",role:"SUPER_ADMIN",grantedAt:identityTimestamp,grantedByUserId:null},
 ];
 
 export const CATEGORY_OPTIONS = categories;

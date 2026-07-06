@@ -76,3 +76,7 @@ Risk scoring uses aggregate behavior only and must not expose phone numbers, leg
 - `PATCH /admin/risk-reports/:id`
 
 Current MVP endpoints may still use in-memory data, but authorization must be enforced again in the backend once real login/session middleware is connected.
+
+## Developer manual testing mode
+
+`VITE_ENABLE_DEMO_PROFILE_SWITCHER=true` enables a temporary local switcher for profile-state testing. It reuses the frontend auth-store session boundary and demo seed data, but it is not real authentication and must not be used to grant real permissions. Keep it disabled in production.

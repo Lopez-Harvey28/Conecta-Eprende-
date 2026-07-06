@@ -37,3 +37,13 @@ VITE_BOOTSTRAP_ADMIN=false
 ```
 
 El middleware de login debe validar la cookie HTTP-only, colocar el `AuthSessionDTO` en `res.locals.authSession` y exponerlo mediante `GET /api/auth/session`.
+
+## Modo manual de pruebas de perfiles
+
+Para probar categorías de perfil localmente sin login real:
+
+```bash
+VITE_ENABLE_DEMO_PROFILE_SWITCHER=true
+```
+
+Esto muestra un selector flotante de perfiles demo. Es una herramienta temporal de desarrollo; no es autenticación real, no concede permisos reales de administración y debe permanecer desactivada en producción. La checklist está en `docs/manual-profile-test-checklist.md`.

@@ -1,4 +1,5 @@
 import type { ClientProfile, RoleAssignment, UserAccount } from "./identity";
+import { demoAccounts, demoClientProfiles, demoOffers, demoProviders, demoRoleAssignments } from "../auth/demoProfiles";
 
 export const CREATIVE_CITIES = ["Estelí", "León", "Nagarote", "Managua", "Masaya", "Granada", "San Juan de Oriente", "Juigalpa", "Matagalpa", "Bluefields"] as const;
 export type CreativeCity = typeof CREATIVE_CITIES[number];
@@ -18,6 +19,7 @@ export interface ProviderProfile {
   portfolioImages: string[]; formalizationStatus: FormalizationStatus; verificationLevel: VerificationLevel;
   trustScore: number; medals: string[]; responseTimeHrs: number; completedRequests: number; profileCompleteness:number;
   lat: number; lng: number; contactPreference: string; createdAt: string; updatedAt: string;
+  profileStatus?: "DRAFT" | "ACTIVE" | "SUSPENDED"; avgRating?: number | null; totalVerifiedReviews?: number; suspiciousActivityPenalty?: number;
 }
 export interface QuoteRequest {
   id: string; requesterId: string; requesterName: string; providerId: string; title: string;
@@ -137,14 +139,19 @@ export const seedAccounts:UserAccount[]=[
   {id:"user-provider",email:"maria@conecta.ni",displayName:"María Fernanda Ruiz",status:"ACTIVE",emailVerifiedAt:identityTimestamp,phoneVerifiedAt:identityTimestamp,createdAt:identityTimestamp,updatedAt:identityTimestamp},
   {id:"user-client",email:"andrea@conecta.ni",displayName:"Andrea López",status:"ACTIVE",emailVerifiedAt:identityTimestamp,phoneVerifiedAt:null,createdAt:identityTimestamp,updatedAt:identityTimestamp},
   ...seedProviders.filter(provider=>provider.ownerUserId!=="user-provider").map(provider=>({id:provider.ownerUserId,email:`${provider.ownerUserId}@example.invalid`,displayName:provider.publicName,status:"ACTIVE" as const,emailVerifiedAt:identityTimestamp,phoneVerifiedAt:provider.verificationLevel==="UNVERIFIED"?null:identityTimestamp,createdAt:provider.createdAt,updatedAt:provider.updatedAt})),
+  ...demoAccounts,
 ];
-export const seedClientProfiles:ClientProfile[]=[{id:"client-profile-1",userId:"user-client",publicName:"Andrea López",city:"Managua",avatarUrl:null,createdAt:identityTimestamp,updatedAt:identityTimestamp}];
+export const seedClientProfiles:ClientProfile[]=[{id:"client-profile-1",userId:"user-client",publicName:"Andrea López",city:"Managua",avatarUrl:null,createdAt:identityTimestamp,updatedAt:identityTimestamp},...demoClientProfiles];
 export const seedRoleAssignments:RoleAssignment[]=[
-  ...seedAccounts.map((account,index)=>({id:`role-requester-${index+1}`,userId:account.id,role:"REQUESTER" as const,grantedAt:identityTimestamp,grantedByUserId:null})),
+  ...seedAccounts.filter(account=>!account.id.includes("_demo")).map((account,index)=>({id:`role-requester-${index+1}`,userId:account.id,role:"REQUESTER" as const,grantedAt:identityTimestamp,grantedByUserId:null})),
   ...seedProviders.map((provider,index)=>({id:`role-provider-${index+1}`,userId:provider.ownerUserId,role:"PROVIDER" as const,grantedAt:identityTimestamp,grantedByUserId:null})),
   {id:"role-admin-reviewer-1",userId:"user-provider",role:"ADMIN_REVIEWER",grantedAt:identityTimestamp,grantedByUserId:null},
   {id:"role-super-admin-1",userId:"user-provider",role:"SUPER_ADMIN",grantedAt:identityTimestamp,grantedByUserId:null},
+  ...demoRoleAssignments,
 ];
+
+seedProviders.push(...demoProviders);
+seedOffers.push(...demoOffers);
 
 export const CATEGORY_OPTIONS = categories;
 export const priceLabel: Record<PriceRange,string> = { LOW:"Económico", MEDIUM:"Intermedio", HIGH:"Premium", NEGOTIABLE:"Negociable" };

@@ -4,34 +4,40 @@ import { ArrowLeft, Save } from "lucide-react";
 import { CATEGORY_OPTIONS, CREATIVE_CITIES, priceLabel } from "../lib/mvp-data";
 import { useAuthStore } from "../stores/auth-store";
 import { useProvidersStore } from "../stores/providers-store";
+import { useMvpStore } from "../stores/mvp-store";
 import { PageHeader } from "../components/mvp/Ui";
 import { useEffect } from "react";
 
 export default function EditPublicProfilePage() {
-  const { user } = useAuthStore();
-  const { currentProvider, getProvider } = useProvidersStore();
+  const { user, fetchMe } = useAuthStore();
+  const { currentProvider, getProvider, clearCurrentProvider } = useProvidersStore();
+  const updateDemoProvider = useMvpStore(state => state.updateProvider);
   const navigate = useNavigate();
 
+  const providerId = user?.providers?.[0]?.id ?? user?.providerProfileId ?? null;
+  const isDemoProvider = !!providerId && providerId.includes("_demo");
   const provider = currentProvider?.provider;
   const catalogItems = currentProvider?.catalogItems || [];
   const photos = currentProvider?.photos || [];
 
   useEffect(() => {
-    if (user?.providers?.[0]?.id) {
-      getProvider(user.providers[0].id);
+    if (providerId) {
+      getProvider(providerId);
+    } else {
+      clearCurrentProvider();
     }
-  }, [user?.providers?.[0]?.id, getProvider]);
+  }, [providerId, getProvider, clearCurrentProvider]);
 
   const [form, setForm] = useState({
     displayName: "",
     tagline: "",
-    city: "",
+    city: "Managua",
     category: "",
     description: "",
-    serviceArea: "",
+    serviceArea: "Managua",
     priceRange: "",
-    availability: "",
-    formalizationStatus: "",
+    availability: "DISPONIBLE",
+    formalizationStatus: "INFORMAL",
     contactPreference: "Mensajes de la plataforma",
     avatarUrl: "",
     coverImageUrl: "",
@@ -69,29 +75,70 @@ export default function EditPublicProfilePage() {
     setErrors(next);
     if (Object.keys(next).length) return;
 
+    const payload = {
+      displayName: form.displayName.trim(),
+      shortDescription: form.tagline.trim(),
+      city: form.city,
+      category: form.category,
+      aboutDescription: form.description.trim(),
+      serviceRadius: form.serviceArea,
+      priceRange: form.priceRange,
+      availability: form.availability,
+      formalizationStatus: form.formalizationStatus,
+      logoUrl: form.avatarUrl.trim() || undefined,
+      coverImageUrl: form.coverImageUrl.trim() || undefined,
+      responseTimeHrs: Math.max(1, Number(form.responseTimeHrs) || 1),
+    };
+
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/providers/${provider?.id}`, {
-        method: "PUT",
+      if (isDemoProvider && provider?.id) {
+        const availabilityMap: Record<string, "AVAILABLE" | "BUSY" | "UNAVAILABLE"> = {
+          DISPONIBLE: "AVAILABLE",
+          OCUPADO: "BUSY",
+          BAJO_PEDIDO: "BUSY",
+          NO_DISPONIBLE_TEMPORALMENTE: "UNAVAILABLE",
+        };
+        const formalizationMap: Record<string, "INFORMAL" | "IN_PROGRESS" | "MIPYME"> = {
+          INFORMAL: "INFORMAL",
+          EN_PROCESO: "IN_PROGRESS",
+          MIPYME_FORMAL: "MIPYME",
+          DOCUMENTOS_PENDIENTES: "IN_PROGRESS",
+        };
+        const ok = updateDemoProvider(provider.id, {
+          publicName: payload.displayName,
+          tagline: payload.shortDescription,
+          city: payload.city as any,
+          category: payload.category,
+          description: payload.aboutDescription,
+          serviceArea: [payload.serviceRadius as any],
+          priceRange: payload.priceRange as any,
+          availability: availabilityMap[payload.availability] ?? "AVAILABLE",
+          formalizationStatus: formalizationMap[payload.formalizationStatus] ?? "INFORMAL",
+          avatarUrl: form.avatarUrl.trim() || undefined,
+          coverImageUrl: form.coverImageUrl.trim() || undefined,
+          responseTimeHrs: payload.responseTimeHrs,
+        });
+        if (!ok) {
+          setErrors({ submit: "No se pudo actualizar este perfil demo." });
+          return;
+        }
+        await getProvider(provider.id);
+        navigate("/me");
+        return;
+      }
+
+      const isEditing = !!provider?.id;
+      const res = await fetch(isEditing ? `/api/providers/${provider.id}` : "/api/providers", {
+        method: isEditing ? "PUT" : "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          displayName: form.displayName.trim(),
-          shortDescription: form.tagline.trim(),
-          city: form.city,
-          category: form.category,
-          aboutDescription: form.description.trim(),
-          serviceRadius: form.serviceArea,
-          priceRange: form.priceRange,
-          availability: form.availability,
-          formalizationStatus: form.formalizationStatus,
-          logoUrl: form.avatarUrl.trim() || undefined,
-          coverImageUrl: form.coverImageUrl.trim() || undefined,
-          responseTimeHrs: Math.max(1, Number(form.responseTimeHrs) || 1),
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (data.success) {
+        await fetchMe();
+        if (data.data?.id) await getProvider(data.data.id);
         navigate("/me");
       } else {
         setErrors({ submit: data.error || "Error al guardar" });

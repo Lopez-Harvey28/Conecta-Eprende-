@@ -8,17 +8,19 @@ import { useEffect } from "react";
 
 export default function MyProfileDashboardPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuthStore();
-  const { currentProvider, getProvider, isLoading: providerLoading } = useProvidersStore();
+  const { currentProvider, getProvider, clearCurrentProvider, isLoading: providerLoading } = useProvidersStore();
   const { threads, fetchThreadsByProvider } = useQuotesStore();
 
-  const providerId = user?.providers?.[0]?.id;
+  const providerId = user?.providers?.[0]?.id ?? user?.providerProfileId ?? null;
   const provider = currentProvider?.provider;
 
   useEffect(() => {
     if (providerId) {
       getProvider(providerId);
+    } else {
+      clearCurrentProvider();
     }
-  }, [providerId, getProvider]);
+  }, [providerId, getProvider, clearCurrentProvider]);
 
   useEffect(() => {
     if (providerId) {

@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import cookieParser from "cookie-parser";
+import { Availability, City, FormalizationStatus } from "@prisma/client";
 import { extractIntent } from "./src/lib/ai/extract-intent";
 import { generateQuoteDraft } from "./src/lib/ai/quote-draft";
 import { generateEnhancedBio } from "./src/lib/ai/enhance-bio";
@@ -48,6 +49,46 @@ import {
   addMessage,
   updateThread,
 } from "./src/lib/quotes-service";
+
+const cityToEnum: Record<string, City> = {
+  "managua": City.MANAGUA,
+  "leon": City.LEON,
+  "león": City.LEON,
+  "granada": City.GRANADA,
+  "masaya": City.MASAYA,
+  "esteli": City.ESTELI,
+  "estelí": City.ESTELI,
+  "matagalpa": City.MATAGALPA,
+  "bluefields": City.BLUEFIELDS,
+  "juigalpa": City.JUIGALPA,
+  "nagarote": City.NAGAROTE,
+  "san juan de oriente": City.SAN_JUAN_DE_ORIENTE,
+};
+
+function normalizeCity(value: unknown): City | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const raw = value.trim();
+  const enumValue = cityToEnum[raw.toLowerCase()] ?? raw.toUpperCase().replace(/\s+/g, "_");
+  return Object.values(City).includes(enumValue as City) ? enumValue as City : undefined;
+}
+
+function normalizeAvailability(value: unknown): Availability {
+  return Object.values(Availability).includes(value as Availability) ? value as Availability : Availability.DISPONIBLE;
+}
+
+function normalizeFormalizationStatus(value: unknown): FormalizationStatus {
+  return Object.values(FormalizationStatus).includes(value as FormalizationStatus) ? value as FormalizationStatus : FormalizationStatus.INFORMAL;
+}
+
+function slugifyProviderName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 56) || "proveedor";
+}
 
 async function startServer() {
   const app = express();
@@ -666,6 +707,60 @@ async function startServer() {
     }
   });
 
+  // POST Create Provider Profile
+  app.post("/api/providers", authenticate, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const displayName = String(req.body.displayName || "").trim();
+      const category = String(req.body.category || "").trim();
+      const aboutDescription = String(req.body.aboutDescription || "").trim();
+
+      if (!displayName || !category || aboutDescription.length < 40) {
+        return res.status(400).json({
+          success: false,
+          error: "Completá nombre, categoría y una descripción de al menos 40 caracteres",
+        });
+      }
+
+      const baseSlug = slugifyProviderName(displayName);
+      let slug = baseSlug;
+      let suffix = 2;
+      while (await prisma.provider.findUnique({ where: { slug }, select: { id: true } })) {
+        slug = `${baseSlug}-${suffix++}`;
+      }
+
+      const provider = await prisma.provider.create({
+        data: {
+          userId,
+          displayName,
+          slug,
+          shortDescription: String(req.body.shortDescription || "").trim() || null,
+          aboutDescription,
+          logoUrl: String(req.body.logoUrl || "").trim() || null,
+          coverImageUrl: String(req.body.coverImageUrl || "").trim() || null,
+          city: normalizeCity(req.body.city) || City.MANAGUA,
+          serviceRadius: String(req.body.serviceRadius || "").trim() || null,
+          category,
+          mainCategory: String(req.body.mainCategory || category).trim(),
+          priceRange: String(req.body.priceRange || "").trim() || null,
+          availability: normalizeAvailability(req.body.availability),
+          formalizationStatus: normalizeFormalizationStatus(req.body.formalizationStatus),
+          responseTimeHrs: Math.max(1, Number(req.body.responseTimeHrs) || 1),
+        },
+      });
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { role: "PROVIDER" },
+      });
+
+      res.status(201).json({ success: true, data: provider });
+    } catch (e) {
+      console.error("Create provider error:", e);
+      res.status(500).json({ success: false, error: "Error al crear proveedor" });
+    }
+  });
+
   // PUT Update Profile
   app.put("/api/providers/:id", authenticate, async (req, res) => {
     try {
@@ -690,7 +785,7 @@ async function startServer() {
         "displayName", "bio", "logoUrl", "coverImageUrl", "city",
         "department", "serviceRadius", "category", "mainCategory", "subcategories",
         "priceMin", "priceMax", "priceRange", "businessHours", "deliveryOptions",
-        "availability", "shortDescription", "aboutDescription", "lat", "lng",
+        "availability", "formalizationStatus", "shortDescription", "aboutDescription", "lat", "lng",
       ];
 
       const updateData: Record<string, any> = {};
@@ -699,6 +794,9 @@ async function startServer() {
           updateData[field] = req.body[field];
         }
       }
+      if (updateData.city) updateData.city = normalizeCity(updateData.city);
+      if (updateData.availability) updateData.availability = normalizeAvailability(updateData.availability);
+      if (updateData.formalizationStatus) updateData.formalizationStatus = normalizeFormalizationStatus(updateData.formalizationStatus);
 
       const updated = await prisma.provider.update({
         where: { id: providerId },

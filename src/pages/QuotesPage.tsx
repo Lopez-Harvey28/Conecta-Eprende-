@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { EmptyState } from "../components/mvp/Ui";
 import {
   getAvatarGradient, getInitials, formatDayLabel, shortTime,
   groupMessagesByDay, type GroupableMessage,
@@ -300,8 +301,8 @@ export default function QuotesPage() {
 
   if (isLoading) {
     return (
-      <div className="p-12 text-center text-slate-500 font-bold">
-        Cargando sala de chat...
+      <div className="chat-loading-state">
+        <span>Cargando sala de chat...</span>
       </div>
     );
   }
@@ -341,9 +342,12 @@ export default function QuotesPage() {
 
             <div className="flex-1 overflow-y-auto w-full">
               {filteredThreads.length === 0 ? (
-                <div className="p-8 text-center text-slate-400">
-                  <Search className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  <p className="text-sm font-semibold">Sin resultados</p>
+                <div className="chat-empty-state">
+                  <div className="chat-empty-icon">
+                    <Search />
+                  </div>
+                  <p className="chat-empty-title">Sin resultados</p>
+                  <p className="chat-empty-text">Probá con otro término de búsqueda</p>
                 </div>
               ) : (
                 filteredThreads.map((thread) => (
@@ -745,7 +749,7 @@ export default function QuotesPage() {
                   <button
                     onClick={handleSend}
                     disabled={activeThread.status === 'CLOSED' || !reply.trim() || sendMutation.isPending}
-                    className="absolute right-2 bottom-2 w-10 h-10 bg-blue-600 text-white rounded-full flex items-center justify-center hover:bg-blue-700 disabled:opacity-40 transition-all shadow-md"
+                    className="absolute right-2 bottom-2 w-10 h-10 bg-[var(--brand)] text-white rounded-full flex items-center justify-center hover:bg-[var(--brand-dark)] disabled:opacity-40 transition-all shadow-md"
                     aria-label="Enviar"
                   >
                     <Send className="w-4 h-4 ml-0.5" />

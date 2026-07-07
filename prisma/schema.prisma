@@ -7,6 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ──────────────────────────────────────────────────────────
+// Enums
+// ──────────────────────────────────────────────────────────
+
+enum Role {
+  USER
+  PROVIDER
+  ADMIN
+}
+
 enum City {
   MANAGUA
   LEON
@@ -23,62 +33,205 @@ enum City {
 enum FormalizationStatus {
   INFORMAL
   EN_PROCESO
-  MIPYME_REGISTRADO
-  DGI_ACTIVO
+  MIPYME_FORMAL
+  DOCUMENTOS_PENDIENTES
 }
 
 enum Availability {
   DISPONIBLE
   OCUPADO
-  NO_DISPONIBLE
+  BAJO_PEDIDO
+  NO_DISPONIBLE_TEMPORALMENTE
 }
+
+// ──────────────────────────────────────────────────────────
+// Auth Core
+// ──────────────────────────────────────────────────────────
 
 model User {
-  id             String         @id @default(cuid())
-  email          String         @unique
-  name           String?
-  image          String?
-  role           String         @default("USER") // USER | PROVIDER | ADMIN
-  createdAt      DateTime       @default(now())
-  provider       Provider?
-  sentQuotes     QuoteThread[]  @relation("Sender")
-  reviewsWritten Review[]       @relation("Reviewer")
-  accounts       Account[]
-  sessions       Session[]
+  id                       String            @id @default(cuid())
+  email                    String            @unique
+  name                     String?
+  image                    String?
+  role                     Role              @default(USER)
+  password                 String?
+  emailVerified            DateTime?
+  createdAt                DateTime          @default(now())
+  updatedAt                DateTime          @updatedAt
+
+  accounts                 Account[]
+  sessions                 Session[]
+  refreshTokens            RefreshToken[]
+  emailVerificationTokens  EmailVerificationToken[]
+  passwordResetTokens      PasswordResetToken[]
+
+  sentQuotes               QuoteThread[]      @relation("Sender")
+  reviews                  Review[]           @relation("Reviewer")
+
+  providers                Provider[]
 }
 
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+}
+
+model Account {
+  id                   String  @id @default(cuid())
+  userId               String
+  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider             String
+  providerAccountId    String
+  refresh_token        String? @db.Text
+  access_token         String? @db.Text
+  expires_at           Int?
+  token_type           String?
+  scope                String?
+  id_token             String? @db.Text
+  session_state        String?
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionToken String   @unique
+  expires      DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([sessionToken])
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+
+  @@index([userId])
+  @@index([token])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+
+  @@index([userId])
+  @@index([token])
+}
+
+// ──────────────────────────────────────────────────────────
+// Provider (un usuario puede tener múltiples negocios)
+// ──────────────────────────────────────────────────────────
+
 model Provider {
-  id                  String               @id @default(cuid())
-  userId              String               @unique
-  user                User                 @relation(fields: [userId], references: [id])
+  id                  String              @id @default(cuid())
+  userId              String
+  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   displayName         String
-  bio                 String?
-  category            String
-  subcategories       String[]
+  slug                String              @unique
+  bio                 String?             @db.Text
+  logoUrl             String?
+  coverImageUrl       String?
+
   city                City
-  
-  // Geo extension column (PostGIS setup required manually)
-  location            Unsupported("geography(Point, 4326)")?
-  
+  department          String?
+  serviceRadius       String?
+
+  // category = categoría principal, mainCategory = categoría más específica
+  category            String
+  mainCategory        String?
+  subcategories       String[]
+
   priceMin            Int?
   priceMax            Int?
-  availability        Availability         @default(DISPONIBLE)
+  priceRange          String?
+  businessHours       String?
+  deliveryOptions     String[]
+
+  availability        Availability        @default(DISPONIBLE)
+  verified            Boolean             @default(false)
+  verificationLevel  String?              // "Perfil completo", "Teléfono verificado", "Documento verificado"
+  formalizationStatus FormalizationStatus @default(INFORMAL)
+  profileCompleteness Float               @default(0)
   responseTimeHrs     Float?
-  photos              String[]
-  verified            Boolean              @default(false)
-  formalizationStatus FormalizationStatus  @default(INFORMAL)
-  profileCompleteness Float                @default(0)
+  completedRequests   Int                 @default(0)
+
+  // Coordenadas - lat/lng simple para Leaflet
+  // PostGIS location disponible si se habilita extensión (requiere Privilegios de superuser)
+  lat                 Float?
+  lng                 Float?
+
+  shortDescription    String?             @db.VarChar(200)
+  aboutDescription    String?             @db.Text
+
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+
   trustScore          TrustScore?
-  reviewsReceived     Review[]             @relation("Reviewee")
+  reviews             Review[]            @relation("Reviewee")
   quoteThreads        QuoteThread[]        @relation("Provider")
   checklistState      FormalizationChecklist?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  photos              ProviderPhoto[]
+  catalogItems        CatalogItem[]
+  medals              ProviderMedal[]
 
   @@index([city])
   @@index([category])
+  @@index([mainCategory])
   @@index([availability])
+  @@index([userId])
+  @@index([slug])
 }
+
+model ProviderPhoto {
+  id            String     @id @default(cuid())
+  providerId    String
+  provider      Provider   @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  catalogItemId String?
+  imageUrl      String
+  caption       String?
+  photoType     String     // PRODUCTO | SERVICIO_REALIZADO | TALLER_O_LOCAL | EQUIPO_PRODUCTIVO | ENTREGA | PORTAFOLIO
+  isFeatured    Boolean    @default(false)
+  createdAt    DateTime   @default(now())
+
+  @@index([providerId])
+}
+
+// ──────────────────────────────────────────────────────────
+// Medals (spec §16)
+// ──────────────────────────────────────────────────────────
+
+model ProviderMedal {
+  id           String   @id @default(cuid())
+  providerId   String
+  provider     Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  medalType    String   // PERFIL_COMPLETO | TELEFONO_VERIFICADO | RESPONDE_RAPIDO | BUENAS_RESENAS | SOLICITUDES_COMPLETADAS | EQUIPO_PRODUCTIVO_DISPONIBLE | EN_PROCESO_DE_FORMALIZACION
+  earnedAt     DateTime @default(now())
+  sourceEvent  String   // descripción del evento que generó la medal
+
+  @@index([providerId])
+}
+
+// ──────────────────────────────────────────────────────────
+// Trust & Reviews
+// ──────────────────────────────────────────────────────────
 
 model TrustScore {
   id                 String   @id @default(cuid())
@@ -98,40 +251,136 @@ model TrustScore {
 }
 
 model Review {
-  id         String   @id @default(cuid())
-  providerId String
-  provider   Provider @relation("Reviewee", fields: [providerId], references: [id])
-  reviewerId String
-  reviewer   User     @relation("Reviewer", fields: [reviewerId], references: [id])
-  rating     Int
-  comment    String?
-  sentiment  Float?
-  createdAt  DateTime @default(now())
+  id                 String   @id @default(cuid())
+  providerId         String
+  provider           Provider @relation("Reviewee", fields: [providerId], references: [id])
+  reviewerId         String
+  reviewer           User     @relation("Reviewer", fields: [reviewerId], references: [id])
+  requestId          String?
+
+  qualityScore       Int
+  responseTimeScore  Int
+  fulfillmentScore   Int
+  communicationScore Int
+  valueScore         Int
+  generalScore       Float
+
+  comment            String?  @db.Text
+  sentiment          Float?
+  createdAt          DateTime @default(now())
 
   @@index([providerId])
+  @@index([reviewerId])
+  @@index([requestId])
 }
 
+// ──────────────────────────────────────────────────────────
+// Catalog Items
+// ──────────────────────────────────────────────────────────
+
+model CatalogItem {
+  id                 String        @id @default(cuid())
+  providerId         String
+  provider           Provider      @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  title              String
+  itemType           String        // PRODUCTO_FINAL | SERVICIO_ESPECIALIZADO | INSUMO | MATERIA_PRIMA | EQUIPO_PRODUCTIVO | ALQUILER_EQUIPO | REPARACION_MANTENIMIENTO | CAPACITACION
+  category           String
+  subcategory        String
+  description        String        @db.Text
+  priceMin           Int?
+  priceMax           Int?
+  currency           String        @default("NIO")
+  priceUnit          String?       // "unidad", "día", "proyecto", "mes"
+
+  city               String
+  availabilityStatus Availability @default(DISPONIBLE)
+  deliveryAvailable  Boolean       @default(false)
+  pickupAvailable    Boolean       @default(false)
+  mainImageUrl       String?
+
+  viewCount          Int          @default(0)
+  inquiryCount       Int          @default(0)
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  equipmentDetail    EquipmentDetail?
+  photos             CatalogItemPhoto[]
+
+  @@index([providerId])
+  @@index([category])
+  @@index([itemType])
+}
+
+model EquipmentDetail {
+  id                   String       @id @default(cuid())
+  catalogItemId        String       @unique
+  catalogItem          CatalogItem  @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  modality             String       // VENTA | ALQUILER | REPARACION | MANTENIMIENTO | INSTALACION | CAPACITACION_USO
+  brand                String?
+  model                String?
+  condition            String?
+  capacity             String?
+  requiresTraining     Boolean      @default(false)
+  includesInstallation Boolean      @default(false)
+  maintenanceAvailable Boolean      @default(true)
+}
+
+model CatalogItemPhoto {
+  id            String       @id @default(cuid())
+  catalogItemId String
+  catalogItem   CatalogItem  @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  imageUrl      String
+  caption       String?
+  isFeatured    Boolean      @default(false)
+  createdAt     DateTime     @default(now())
+
+  @@index([catalogItemId])
+}
+
+// ──────────────────────────────────────────────────────────
+// Quotes / Requests
+// ──────────────────────────────────────────────────────────
+
 model QuoteThread {
-  id         String         @id @default(cuid())
-  senderId   String
-  sender     User           @relation("Sender", fields: [senderId], references: [id])
-  providerId String
-  provider   Provider       @relation("Provider", fields: [providerId], references: [id])
-  subject    String
-  status     String         @default("OPEN")
-  messages   QuoteMessage[]
-  createdAt  DateTime       @default(now())
+  id            String         @id @default(cuid())
+  senderId      String
+  sender        User           @relation("Sender", fields: [senderId], references: [id])
+  providerId    String
+  provider      Provider       @relation("Provider", fields: [providerId], references: [id])
+  catalogItemId String?
+
+  // Compatibilidad con frontend legacy
+  subject       String
+  clientName    String?        // display name del cliente (se deriva de sender si null)
+  clientAvatar  String?        // avatar abbreviation
+  dateLabel     String?        // "Ayer", "Hace 1 semana" - calculado en app
+
+  status        String         @default("OPEN") // OPEN | IN_CONVERSATION | QUOTE_SENT | QUOTE_ACCEPTED | COMPLETED | CLOSED_REQUESTER | CLOSED_PROVIDER | CANCELLED
+
+  // Quote fields
+  quotedPriceLabel    String?
+  quotedDeliveryTime  String?
+  confirmedByRequesterAt DateTime?
+  confirmedByProviderAt DateTime?
+  completedAt         DateTime?
+
+  messages      QuoteMessage[]
+  createdAt     DateTime       @default(now())
 
   @@index([senderId])
   @@index([providerId])
+  @@index([status])
 }
 
 model QuoteMessage {
   id             String      @id @default(cuid())
   threadId       String
-  thread         QuoteThread @relation(fields: [threadId], references: [id])
+  thread         QuoteThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   authorId       String
-  body           String
+  authorRole     String      // "client" | "provider" | "system"
+  body           String      @db.Text
   aiDrafted      Boolean     @default(false)
   approvedByUser Boolean     @default(true)
   createdAt      DateTime    @default(now())
@@ -139,22 +388,14 @@ model QuoteMessage {
   @@index([threadId])
 }
 
+// ──────────────────────────────────────────────────────────
+// Formalization
+// ──────────────────────────────────────────────────────────
+
 model FormalizationChecklist {
   id         String   @id @default(cuid())
   providerId String   @unique
-  provider   Provider @relation(fields: [providerId], references: [id])
-  steps      Json
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  steps      Json     // [{id, title, description, status: "completed" | "current" | "pending"}]
   updatedAt  DateTime @updatedAt
-}
-
-model Account {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
-}
-
-model Session {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id])
 }

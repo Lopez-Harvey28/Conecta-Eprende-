@@ -18,7 +18,7 @@ interface MvpState {
 
 const now=()=>new Date().toISOString();const closedStatuses=["COMPLETED","CLOSED_BY_REQUESTER","CLOSED_BY_PROVIDER","CANCELLED"];
 const fail=(set:(value:Partial<MvpState>)=>void,message:string)=>{set({toast:message});return false};
-function actor(state:MvpState){const session=useAuthStore.getState().session;if(!session)return null;const account=state.accounts.find(item=>item.id===session.userId);if(!account||account.status!=="ACTIVE")return null;const provider=state.providers.find(item=>item.ownerUserId===session.userId);return{session,account,provider,requestActor:{id:account.id,providerId:provider?.id??null}}}
+function actor(state:MvpState){const user=useAuthStore.getState().user;if(!user)return null;const account=state.accounts.find(item=>item.id===user.id)??{id:user.id,email:user.email,displayName:user.name??user.email,status:"ACTIVE" as const,emailVerifiedAt:user.emailVerified,phoneVerifiedAt:user.emailVerified,createdAt:user.createdAt,updatedAt:user.createdAt};if(account.status!=="ACTIVE")return null;const provider=state.providers.find(item=>item.id===user.providerProfileId||item.ownerUserId===user.id);const systemRoles=user.roleLabels??[user.role];return{session:{userId:user.id,systemRoles},account,provider,requestActor:{id:account.id,providerId:provider?.id??user.providerProfileId??user.providers[0]?.id??null}}}
 
 export const useMvpStore=create<MvpState>()(persist((set,get)=>({
   accounts:seedAccounts,clientProfiles:seedClientProfiles,roleAssignments:seedRoleAssignments,providers:seedProviders,offers:seedOffers,requests:seedRequests,reviews:seedReviews,reports:seedReports,formalizationSteps:{"provider-1":[true,true,false,false]},savedProviderIds:[],toast:null,

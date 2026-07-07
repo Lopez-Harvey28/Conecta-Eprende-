@@ -1,16 +1,263 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Save } from "lucide-react";
-import { publicTextError, sanitizePlainText } from "../lib/content-validation";
-import { CATEGORY_OPTIONS, CREATIVE_CITIES, availabilityLabel, priceLabel, type Availability, type CreativeCity, type PriceRange } from "../lib/mvp-data";
-import { useMvpStore } from "../stores/mvp-store";
+import { CATEGORY_OPTIONS, CREATIVE_CITIES, priceLabel } from "../lib/mvp-data";
+import { useAuthStore } from "../stores/auth-store";
+import { useProvidersStore } from "../stores/providers-store";
 import { PageHeader } from "../components/mvp/Ui";
-import { useAuthenticatedUser } from "../hooks/use-current-user";
+import { useEffect } from "react";
 
-export default function EditPublicProfilePage(){
-  const current=useAuthenticatedUser();const provider=useMvpStore(state=>state.providers.find(item=>item.id===current.providerId));const allOffers=useMvpStore(state=>state.offers);const update=useMvpStore(state=>state.updateProvider);const navigate=useNavigate();const offers=useMemo(()=>allOffers.filter(item=>item.providerId===current.providerId&&item.status==="ACTIVE"),[allOffers,current.providerId]);
-  const [form,setForm]=useState(()=>({publicName:provider?.publicName||"",tagline:provider?.tagline||"",city:provider?.city||"Managua" as CreativeCity,category:provider?.category||CATEGORY_OPTIONS[0],description:provider?.description||"",serviceArea:provider?.serviceArea[0]||"Managua" as CreativeCity,priceRange:provider?.priceRange||"MEDIUM" as PriceRange,availability:provider?.availability||"AVAILABLE" as Availability,contactPreference:"Mensajes de la plataforma",avatarUrl:provider?.avatarUrl||"",coverImageUrl:provider?.coverImageUrl||provider?.portfolioImages[0]||"",responseTimeHrs:String(provider?.responseTimeHrs||1)}));const [errors,setErrors]=useState<Record<string,string>>({});
-  if(!provider)return <div className="content-page"><h1>Perfil no encontrado</h1></div>;
-  const submit=(event:FormEvent)=>{event.preventDefault();const next:Record<string,string>={};const nameError=publicTextError(form.publicName,3,"El nombre público");const descriptionError=publicTextError(form.description,40,"La descripción");if(nameError)next.publicName=nameError;if(descriptionError)next.description=descriptionError;if(!form.city)next.city="Elegí una ciudad.";if(!form.category)next.category="Elegí la categoría principal.";setErrors(next);if(Object.keys(next).length)return;const checks=[form.publicName,form.city,form.category,form.description.length>=40,offers.length>0,form.coverImageUrl,form.priceRange,form.availability,current.phoneVerified];const completeness=Math.round(checks.filter(Boolean).length/checks.length*100);if(update(provider.id,{publicName:sanitizePlainText(form.publicName),tagline:sanitizePlainText(form.tagline),city:form.city,category:form.category,description:sanitizePlainText(form.description),serviceArea:[form.serviceArea],priceRange:form.priceRange,availability:form.availability,contactPreference:form.contactPreference,avatarUrl:form.avatarUrl.trim()||undefined,coverImageUrl:form.coverImageUrl.trim()||undefined,portfolioImages:form.coverImageUrl.trim()?[form.coverImageUrl.trim(),...provider.portfolioImages.filter(image=>image!==form.coverImageUrl.trim())]:provider.portfolioImages,responseTimeHrs:Math.max(1,Number(form.responseTimeHrs)||1),profileCompleteness:completeness,verificationLevel:current.phoneVerified&&completeness===100?"COMPLETE":current.phoneVerified?"PHONE":"UNVERIFIED"}))navigate("/me");};
-  return <div className="narrow-page"><Link className="back-link" to="/me"><ArrowLeft/> Mi perfil</Link><PageHeader eyebrow="Identidad pública" title="Editar perfil público" description="Esta información explica quién sos. La formalización se actualiza desde su guía verificada."/><form className="form-panel" onSubmit={submit}><label>Nombre público o comercial<input value={form.publicName} onChange={event=>setForm({...form,publicName:event.target.value})}/>{errors.publicName&&<span className="field-error">{errors.publicName}</span>}</label><label>Frase corta<input value={form.tagline} onChange={event=>setForm({...form,tagline:event.target.value})} placeholder="Ej. Empaques responsables para marcas locales"/></label><div className="form-grid"><label>Ciudad<select value={form.city} onChange={event=>setForm({...form,city:event.target.value as CreativeCity})}>{CREATIVE_CITIES.map(city=><option key={city}>{city}</option>)}</select></label><label>Categoría principal<select value={form.category} onChange={event=>setForm({...form,category:event.target.value})}>{CATEGORY_OPTIONS.map(category=><option key={category}>{category}</option>)}</select></label><label>Área de servicio<select value={form.serviceArea} onChange={event=>setForm({...form,serviceArea:event.target.value as CreativeCity})}>{CREATIVE_CITIES.map(city=><option key={city}>{city}</option>)}</select></label><label>Rango general<select value={form.priceRange} onChange={event=>setForm({...form,priceRange:event.target.value as PriceRange})}>{Object.entries(priceLabel).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label><label>Disponibilidad<select value={form.availability} onChange={event=>setForm({...form,availability:event.target.value as Availability})}>{Object.entries(availabilityLabel).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label><label>Respuesta estimada en horas<input type="number" min="1" value={form.responseTimeHrs} onChange={event=>setForm({...form,responseTimeHrs:event.target.value})}/></label></div><label>Descripción<textarea rows={6} value={form.description} onChange={event=>setForm({...form,description:event.target.value})}/>{errors.description&&<span className="field-error">{errors.description}</span>}<span className="field-hint">{form.description.length}/40 mínimo</span></label><label>URL de avatar<input type="url" value={form.avatarUrl} onChange={event=>setForm({...form,avatarUrl:event.target.value})}/></label><label>URL de imagen principal<input type="url" value={form.coverImageUrl} onChange={event=>setForm({...form,coverImageUrl:event.target.value})}/></label><button className="button primary"><Save/> Guardar perfil público</button></form></div>;
+export default function EditPublicProfilePage() {
+  const { user } = useAuthStore();
+  const { currentProvider, getProvider } = useProvidersStore();
+  const navigate = useNavigate();
+
+  const provider = currentProvider?.provider;
+  const catalogItems = currentProvider?.catalogItems || [];
+  const photos = currentProvider?.photos || [];
+
+  useEffect(() => {
+    if (user?.providers?.[0]?.id) {
+      getProvider(user.providers[0].id);
+    }
+  }, [user?.providers?.[0]?.id, getProvider]);
+
+  const [form, setForm] = useState({
+    displayName: "",
+    tagline: "",
+    city: "",
+    category: "",
+    description: "",
+    serviceArea: "",
+    priceRange: "",
+    availability: "",
+    formalizationStatus: "",
+    contactPreference: "Mensajes de la plataforma",
+    avatarUrl: "",
+    coverImageUrl: "",
+    responseTimeHrs: "1",
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (provider) {
+      setForm({
+        displayName: provider.displayName || "",
+        tagline: provider.shortDescription || "",
+        city: provider.city || "",
+        category: provider.category || "",
+        description: provider.aboutDescription || provider.shortDescription || "",
+        serviceArea: provider.serviceRadius || provider.city || "",
+        priceRange: provider.priceRange || "",
+        availability: provider.availability || "",
+        formalizationStatus: provider.formalizationStatus || "",
+        contactPreference: "Mensajes de la plataforma",
+        avatarUrl: provider.logoUrl || "",
+        coverImageUrl: provider.coverImageUrl || photos[0]?.imageUrl || "",
+        responseTimeHrs: String(provider.responseTimeHrs || 1),
+      });
+    }
+  }, [provider, photos]);
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    const next: Record<string, string> = {};
+    if (!form.displayName.trim()) next.displayName = "Ingresá el nombre público del negocio.";
+    if (!form.category) next.category = "Elegí la categoría principal.";
+    if (form.description.trim().length < 40) next.description = "La descripción debe explicar qué ofrecés y tener al menos 40 caracteres.";
+    setErrors(next);
+    if (Object.keys(next).length) return;
+
+    setIsSaving(true);
+    try {
+      const res = await fetch(`/api/providers/${provider?.id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          displayName: form.displayName.trim(),
+          shortDescription: form.tagline.trim(),
+          city: form.city,
+          category: form.category,
+          aboutDescription: form.description.trim(),
+          serviceRadius: form.serviceArea,
+          priceRange: form.priceRange,
+          availability: form.availability,
+          formalizationStatus: form.formalizationStatus,
+          logoUrl: form.avatarUrl.trim() || undefined,
+          coverImageUrl: form.coverImageUrl.trim() || undefined,
+          responseTimeHrs: Math.max(1, Number(form.responseTimeHrs) || 1),
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        navigate("/me");
+      } else {
+        setErrors({ submit: data.error || "Error al guardar" });
+      }
+    } catch (err) {
+      setErrors({ submit: "Error de conexión" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const formalizationOptions: Record<string, string> = {
+    INFORMAL: "Informal",
+    EN_PROCESO: "En proceso",
+    MIPYME_FORMAL: "MIPYME formal",
+    DOCUMENTOS_PENDIENTES: "Documentos pendientes",
+  };
+
+  const availabilityOptions: Record<string, string> = {
+    DISPONIBLE: "Disponible",
+    OCUPADO: "Ocupado",
+    BAJO_PEDIDO: "Bajo pedido",
+    NO_DISPONIBLE_TEMPORALMENTE: "No disponible",
+  };
+
+  return (
+    <div className="narrow-page">
+      <Link className="back-link" to="/me">
+        <ArrowLeft /> Mi perfil
+      </Link>
+      <PageHeader
+        eyebrow="Identidad pública"
+        title="Editar perfil público"
+        description="Esta información explica quién sos. Los productos y servicios se administran en el catálogo."
+      />
+      <form className="form-panel" onSubmit={handleSubmit}>
+        <label>
+          Nombre público o comercial
+          <input
+            value={form.displayName}
+            onChange={event => setForm({ ...form, displayName: event.target.value })}
+          />
+          {errors.displayName && <span className="field-error">{errors.displayName}</span>}
+        </label>
+        <label>
+          Frase corta
+          <input
+            value={form.tagline}
+            onChange={event => setForm({ ...form, tagline: event.target.value })}
+            placeholder="Ej. Empaques responsables para marcas locales"
+          />
+        </label>
+        <div className="form-grid">
+          <label>
+            Ciudad
+            <select
+              value={form.city}
+              onChange={event => setForm({ ...form, city: event.target.value })}
+            >
+              {CREATIVE_CITIES.map(city => <option key={city}>{city}</option>)}
+            </select>
+          </label>
+          <label>
+            Categoría principal
+            <select
+              value={form.category}
+              onChange={event => setForm({ ...form, category: event.target.value })}
+            >
+              <option value="">Elegí categoría</option>
+              {CATEGORY_OPTIONS.map(category => <option key={category}>{category}</option>)}
+            </select>
+            {errors.category && <span className="field-error">{errors.category}</span>}
+          </label>
+          <label>
+            Área de servicio
+            <select
+              value={form.serviceArea}
+              onChange={event => setForm({ ...form, serviceArea: event.target.value })}
+            >
+              {CREATIVE_CITIES.map(city => <option key={city}>{city}</option>)}
+            </select>
+          </label>
+          <label>
+            Rango general
+            <select
+              value={form.priceRange}
+              onChange={event => setForm({ ...form, priceRange: event.target.value })}
+            >
+              <option value="">Sin definir</option>
+              {Object.entries(priceLabel).map(([value, label]) => (
+                <option value={value} key={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Disponibilidad
+            <select
+              value={form.availability}
+              onChange={event => setForm({ ...form, availability: event.target.value })}
+            >
+              <option value="">Sin definir</option>
+              {Object.entries(availabilityOptions).map(([value, label]) => (
+                <option value={value} key={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Formalización
+            <select
+              value={form.formalizationStatus}
+              onChange={event => setForm({ ...form, formalizationStatus: event.target.value })}
+            >
+              <option value="">Sin definir</option>
+              {Object.entries(formalizationOptions).map(([value, label]) => (
+                <option value={value} key={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Respuesta estimada (horas)
+            <input
+              type="number"
+              min="1"
+              value={form.responseTimeHrs}
+              onChange={event => setForm({ ...form, responseTimeHrs: event.target.value })}
+            />
+          </label>
+          <label>
+            Contacto preferido
+            <select
+              value={form.contactPreference}
+              onChange={event => setForm({ ...form, contactPreference: event.target.value })}
+            >
+              <option>Mensajes de la plataforma</option>
+            </select>
+          </label>
+        </div>
+        <label>
+          Descripción
+          <textarea
+            rows={6}
+            value={form.description}
+            onChange={event => setForm({ ...form, description: event.target.value })}
+          />
+          {errors.description && <span className="field-error">{errors.description}</span>}
+          <span className="field-hint">{form.description.length}/40 mínimo</span>
+        </label>
+        <label>
+          URL de avatar
+          <input
+            value={form.avatarUrl}
+            onChange={event => setForm({ ...form, avatarUrl: event.target.value })}
+          />
+        </label>
+        <label>
+          URL de portada
+          <input
+            value={form.coverImageUrl}
+            onChange={event => setForm({ ...form, coverImageUrl: event.target.value })}
+          />
+        </label>
+        {errors.submit && <p className="field-error">{errors.submit}</p>}
+        <button className="button primary" disabled={isSaving}>
+          <Save /> {isSaving ? "Guardando..." : "Guardar perfil público"}
+        </button>
+      </form>
+    </div>
+  );
 }

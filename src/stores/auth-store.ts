@@ -1,42 +1,168 @@
 import { create } from "zustand";
-import type { AuthSessionDTO } from "../lib/identity";
 
-type AuthStatus="IDLE"|"LOADING"|"AUTHENTICATED"|"UNAUTHENTICATED";
-const bootstrapAdminEnabled=import.meta.env?.VITE_BOOTSTRAP_ADMIN!=="false";
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string | null;
+  image: string | null;
+  role: string;
+  emailVerified: string | null;
+  createdAt: string;
+  roleLabels?: string[];
+  requesterProfileId?: string;
+  providerProfileId?: string | null;
+  profileState?: "DRAFT" | "ACTIVE" | "SUSPENDED";
+  providers: Array<{
+    id: string;
+    displayName: string;
+    slug: string;
+    verified: boolean;
+    formalizationStatus: string;
+  }>;
+}
+
 interface AuthState {
-  status:AuthStatus;
-  session:AuthSessionDTO|null;
-  error:string|null;
-  refreshSession:()=>Promise<void>;
-  establishSession:(session:AuthSessionDTO)=>void;
-  clearSession:()=>void;
+  user: AuthUser | null;
+  isAuthenticated: boolean;
+  isLoading: boolean;
+  error: string | null;
+
+  setUser: (user: AuthUser | null) => void;
+  setLoading: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+  clearError: () => void;
+
+  fetchMe: () => Promise<boolean>;
+  login: (email: string, password: string) => Promise<boolean>;
+  register: (name: string, email: string, password: string) => Promise<boolean>;
+  logout: () => Promise<void>;
+  refreshToken: () => Promise<boolean>;
 }
 
-function createBootstrapAdminSession():AuthSessionDTO {
-  const issuedAt=new Date();
-  return{sessionId:"bootstrap-admin-session",userId:"user-provider",systemRoles:["REQUESTER","PROVIDER","ADMIN_REVIEWER","SUPER_ADMIN"],issuedAt:issuedAt.toISOString(),expiresAt:new Date(issuedAt.getTime()+8*60*60*1000).toISOString()};
+async function apiFetch<T>(endpoint: string, options?: RequestInit): Promise<T | null> {
+  try {
+    const res = await fetch(endpoint, {
+      ...options,
+      credentials: "include",
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    });
+
+    const data = await res.json() as { success: boolean; data?: T; error?: string };
+
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || `HTTP ${res.status}`);
+    }
+
+    return data.data as T;
+  } catch (error) {
+    console.error("API error:", error);
+    return null;
+  }
 }
 
-function isSession(value:unknown):value is AuthSessionDTO {
-  if(!value||typeof value!=="object")return false;
-  const session=value as Partial<AuthSessionDTO>;
-  return typeof session.sessionId==="string"&&typeof session.userId==="string"&&Array.isArray(session.systemRoles)&&typeof session.issuedAt==="string"&&typeof session.expiresAt==="string";
-}
+export const useAuthStore = create<AuthState>((set, get) => ({
+  user: null,
+  isAuthenticated: false,
+  isLoading: false,
+  error: null,
 
-export const useAuthStore=create<AuthState>((set)=>({
-  status:"IDLE",session:null,error:null,
-  refreshSession:async()=>{
-    set({status:"LOADING",error:null});
-    try{
-      const response=await fetch("/api/auth/session",{credentials:"include",headers:{Accept:"application/json"}});
-      if(response.status===401||response.status===404){set(bootstrapAdminEnabled?{status:"AUTHENTICATED",session:createBootstrapAdminSession(),error:null}:{status:"UNAUTHENTICATED",session:null,error:null});return;}
-      if(!response.ok)throw new Error("No pudimos verificar tu sesión.");
-      const payload:unknown=await response.json();
-      if(!isSession(payload))throw new Error("La sesión recibida no tiene el formato esperado.");
-      if(new Date(payload.expiresAt).getTime()<=Date.now()){set({status:"UNAUTHENTICATED",session:null});return;}
-      set({status:"AUTHENTICATED",session:payload,error:null});
-    }catch(error){set({status:"UNAUTHENTICATED",session:null,error:error instanceof Error?error.message:"No pudimos verificar tu sesión."});}
+  setUser: (user) => set({ user, isAuthenticated: !!user }),
+  setLoading: (isLoading) => set({ isLoading }),
+  setError: (error) => set({ error }),
+  clearError: () => set({ error: null }),
+
+  fetchMe: async () => {
+    set({ isLoading: true });
+    try {
+      const data = await apiFetch<{ user: AuthUser }>("/api/auth/me");
+      if (data?.user) {
+        set({ user: data.user, isAuthenticated: true, isLoading: false });
+        return true;
+      }
+      set({ user: null, isAuthenticated: false, isLoading: false });
+      return false;
+    } catch {
+      set({ user: null, isAuthenticated: false, isLoading: false });
+      return false;
+    }
   },
-  establishSession:session=>set({status:"AUTHENTICATED",session,error:null}),
-  clearSession:()=>set({status:"UNAUTHENTICATED",session:null,error:null}),
+
+  login: async (email, password) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await res.json() as { success: boolean; data?: { user: AuthUser }; error?: string };
+
+      if (!res.ok || !data.success) {
+        set({ error: data.error || "Error al iniciar sesión", isLoading: false });
+        return false;
+      }
+
+      set({ user: data.data?.user || null, isAuthenticated: true, isLoading: false, error: null });
+      return true;
+    } catch (error) {
+      set({ error: "Error de conexión", isLoading: false });
+      return false;
+    }
+  },
+
+  register: async (name, email, password) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, email, password }),
+      });
+
+      const data = await res.json() as { success: boolean; data?: { user: AuthUser }; error?: string };
+
+      if (!res.ok || !data.success) {
+        set({ error: data.error || "Error al registrar", isLoading: false });
+        return false;
+      }
+
+      set({ user: data.data?.user || null, isAuthenticated: true, isLoading: false, error: null });
+      return true;
+    } catch (error) {
+      set({ error: "Error de conexión", isLoading: false });
+      return false;
+    }
+  },
+
+  logout: async () => {
+    set({ isLoading: true });
+    try {
+      await fetch("/api/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+    } finally {
+      set({ user: null, isAuthenticated: false, isLoading: false });
+    }
+  },
+
+  refreshToken: async () => {
+    try {
+      const res = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "include",
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
 }));

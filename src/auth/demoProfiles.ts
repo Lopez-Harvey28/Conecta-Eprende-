@@ -1,5 +1,6 @@
-import type { AuthSessionDTO, ClientProfile, Role, RoleAssignment, UserAccount } from "../lib/identity";
+import type { ClientProfile, Role, RoleAssignment, UserAccount } from "../lib/identity";
 import type { ProviderOffer, ProviderProfile } from "../lib/mvp-data";
+import type { AuthUser } from "../stores/auth-store";
 
 export type DemoProfileOption = {
   id:string;
@@ -27,13 +28,23 @@ export const demoProfiles:DemoProfileOption[]=[
   {id:"super-admin",label:"Super admin",description:"Acceso administrativo completo para validar guards.",user:{id:"user_super_admin_demo",name:"Demo Super Admin",email:"super-admin@demo.test",roles:["REQUESTER","SUPER_ADMIN"],requesterProfileId:"requester_demo_006",providerProfileId:null}},
 ];
 
-export function createDemoSession(option:DemoProfileOption):AuthSessionDTO {
+export function createDemoAuthUser(option:DemoProfileOption):AuthUser {
+  const provider=demoProviders.find(item=>item.id===option.user.providerProfileId);
+  const isAdmin=option.user.roles.includes("ADMIN_REVIEWER")||option.user.roles.includes("SUPER_ADMIN");
+  const isProvider=option.user.roles.includes("PROVIDER");
   return {
-    sessionId:`demo-profile-${option.id}`,
-    userId:option.user.id,
-    systemRoles:option.user.roles,
-    issuedAt:new Date().toISOString(),
-    expiresAt:new Date(Date.now()+4*60*60*1000).toISOString(),
+    id:option.user.id,
+    email:option.user.email,
+    name:option.user.name,
+    image:null,
+    role:isAdmin?"ADMIN":isProvider?"PROVIDER":"USER",
+    roleLabels:option.user.roles,
+    requesterProfileId:option.user.requesterProfileId,
+    providerProfileId:option.user.providerProfileId,
+    profileState:provider?.profileStatus,
+    emailVerified:demoIssuedAt,
+    createdAt:demoIssuedAt,
+    providers:provider?[{id:provider.id,displayName:provider.publicName,slug:provider.id,verified:provider.verificationLevel==="COMPLETE",formalizationStatus:provider.formalizationStatus}]:[],
   };
 }
 

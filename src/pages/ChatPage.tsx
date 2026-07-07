@@ -1,32 +1,552 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AlertTriangle, ArrowLeft, BadgeCheck, Check, CheckCheck, ChevronDown, Circle, FileText, Flag, HandCoins, Info, Search, Send, ShieldCheck, X } from "lucide-react";
-import { sanitizePlainText } from "../lib/content-validation";
-import { getRequestRole, useMvpStore } from "../stores/mvp-store";
-import { EmptyState, RequestStatusBadge } from "../components/mvp/Ui";
-import type { ChatMessage, QuoteRequest } from "../lib/mvp-data";
-import { useAuthenticatedUser } from "../hooks/use-current-user";
+import {
+  AlertTriangle, ArrowLeft, BadgeCheck, Check, CheckCheck, ChevronDown,
+  Circle, FileText, Flag, HandCoins, Info, MessageCircle, Search, Send, ShieldCheck,
+  UserRound, X,
+} from "lucide-react";
+import { useAuthStore } from "../stores/auth-store";
+import { useQuotesStore } from "../stores/quotes-store";
+import { useProvidersStore } from "../stores/providers-store";
+import { RequestStatusBadge } from "../components/mvp/Ui";
 
-const quickReplies={provider:["Gracias por escribir. ¿Podés compartir cantidad y fecha deseada?","Tengo disponibilidad esta semana.","Puedo enviarte una cotización con precio y entrega."],requester:["Quisiera una cotización detallada.","Te comparto cantidad, medidas y fecha de entrega.","¿Qué información necesitás para cotizar?"]};
+const quickReplies = {
+  provider: [
+    "Gracias por escribir. ¿Podés compartir cantidad y fecha deseada?",
+    "Tengo disponibilidad esta semana.",
+    "Puedo enviarte una cotización con precio y entrega.",
+  ],
+  requester: [
+    "Quisiera una cotización detallada.",
+    "Te comparto cantidad, medidas y fecha de entrega.",
+    "¿Qué información necesitás para cotizar?",
+  ],
+};
 
-export default function ChatPage(){
-  const {requestId}=useParams();const current=useAuthenticatedUser();const requests=useMvpStore(state=>state.requests);const providers=useMvpStore(state=>state.providers);const offers=useMvpStore(state=>state.offers);const addMessage=useMvpStore(state=>state.addMessage);const sendQuote=useMvpStore(state=>state.sendQuote);const acceptQuote=useMvpStore(state=>state.acceptQuote);const confirm=useMvpStore(state=>state.confirmRequest);const close=useMvpStore(state=>state.closeRequest);const markRead=useMvpStore(state=>state.markConversationRead);const addReport=useMvpStore(state=>state.addReport);
-  const request=requests.find(item=>item.id===requestId);const provider=providers.find(item=>item.id===request?.providerId);const offer=offers.find(item=>item.id===request?.productId);const role=request?getRequestRole(request,current):null;
-  const [reply,setReply]=useState("");const [search,setSearch]=useState("");const [unreadOnly,setUnreadOnly]=useState(false);const [quoteOpen,setQuoteOpen]=useState(false);const [price,setPrice]=useState(request?.quotedPriceLabel||"");const [delivery,setDelivery]=useState(request?.quotedDeliveryTime||"");const [externalOpen,setExternalOpen]=useState(false);const [reportOpen,setReportOpen]=useState(false);const [reportReason,setReportReason]=useState("Conducta sospechosa");const [reportText,setReportText]=useState("");const bottomRef=useRef<HTMLDivElement>(null);
-  const conversations=useMemo(()=>requests.filter(item=>getRequestRole(item,current)).filter(item=>!unreadOnly||(getRequestRole(item,current)==="provider"?item.unreadByProvider:item.unreadByRequester)>0).filter(item=>{const related=providers.find(providerItem=>providerItem.id===item.providerId);return `${item.title} ${related?.publicName||""}`.toLowerCase().includes(search.toLowerCase());}).sort((a,b)=>new Date(b.updatedAt).getTime()-new Date(a.updatedAt).getTime()),[requests,current,providers,search,unreadOnly]);
-  useEffect(()=>{if(requestId)markRead(requestId);},[requestId,markRead]);useEffect(()=>{bottomRef.current?.scrollIntoView({behavior:"smooth"});},[request?.messages.length]);
-  if(!request||!provider)return <div className="content-page"><EmptyState title="Conversación no encontrada">Revisá el enlace o volvé a tus solicitudes.</EmptyState></div>;
-  if(!role)return <div className="content-page"><EmptyState title="No autorizado">Solo el cliente y el proveedor pueden abrir esta conversación.</EmptyState></div>;
-  const submit=(event:FormEvent)=>{event.preventDefault();if(addMessage(request.id,reply))setReply("");};const submitQuote=(event:FormEvent)=>{event.preventDefault();if(sendQuote(request.id,price,delivery))setQuoteOpen(false);};const myUnread=(item:QuoteRequest)=>getRequestRole(item,current)==="provider"?item.unreadByProvider:item.unreadByRequester;
-  return <div className="chat-page"><aside className="chat-conversations"><div className="chat-sidebar-head"><Link to="/requests" className="back-link"><ArrowLeft/> Solicitudes</Link><h1>Conversaciones</h1><p>Acuerdos vinculados a solicitudes</p></div><label className="chat-search"><Search/><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="Buscar conversación"/></label><label className="chat-unread-filter"><input type="checkbox" checked={unreadOnly} onChange={event=>setUnreadOnly(event.target.checked)}/> Solo no leídas</label><nav className="conversation-list">{conversations.map(item=>{const related=providers.find(providerItem=>providerItem.id===item.providerId);const unread=myUnread(item);return <Link key={item.id} to={`/requests/${item.id}/chat`} className={item.id===request.id?"active":""}><span className="conversation-avatar">{related?.publicName.slice(0,2).toUpperCase()}</span><span className="conversation-copy"><strong>{related?.publicName}</strong><b>{item.title}</b><small>{item.messages.at(-1)?.text}</small></span><span className="conversation-meta"><time>{new Date(item.updatedAt).toLocaleDateString("es-NI",{day:"numeric",month:"short"})}</time>{unread>0&&<em>{unread}</em>}</span></Link>})}</nav></aside>
-    <main className="chat-thread"><header className="chat-thread-header"><div><span className="conversation-avatar large">{provider.publicName.slice(0,2).toUpperCase()}</span><span><strong>{provider.publicName}</strong><small>{request.title}{offer?` · ${offer.name}`:""}</small></span></div><div className="chat-header-actions"><RequestStatusBadge status={request.status}/><span className="badge">Tu rol: {role==="provider"?"Proveedor":"Cliente"}</span><button className="icon-button" onClick={()=>setReportOpen(true)} aria-label="Reportar conversación"><Flag/></button></div></header><details className="chat-mobile-summary"><summary>Resumen de la solicitud <ChevronDown/></summary><RequestSummary request={request} providerName={provider.publicName} offerName={offer?.name}/></details><section className="retention-banner"><ShieldCheck/><div><strong>Conversación protegida</strong><p>Mantener el acuerdo acá permite dar seguimiento, confirmar el trabajo y desbloquear una reseña verificada.</p></div></section><section className="message-stream" aria-live="polite">{request.messages.map(message=><div className="message-block-wrap" key={message.id}><MessageBlock message={message} providerName={provider.publicName} requesterName={request.requesterName}/></div>)}<div ref={bottomRef}/></section>
-      {request.status!=="COMPLETED"&&!request.status.startsWith("CLOSED")&&<footer className="chat-composer"><div className="quick-replies">{quickReplies[role].map(text=><button key={text} onClick={()=>setReply(text)}>{text}</button>)}</div><div className="chat-quick-actions">{role==="provider"&&<button onClick={()=>setQuoteOpen(!quoteOpen)}><HandCoins/> Enviar precio estimado</button>}<button onClick={()=>setReply(role==="provider"?"¿Podés compartir cantidad, medidas y fecha deseada?":"Te comparto los detalles necesarios para preparar la cotización.")}><FileText/> {role==="provider"?"Pedir más detalles":"Preparar detalles"}</button><button disabled={role==="provider"?!!request.confirmedByProviderAt:!!request.confirmedByRequesterAt} onClick={()=>confirm(request.id)}><CheckCheck/> Confirmar como {role==="provider"?"proveedor":"cliente"}</button><button onClick={()=>setExternalOpen(true)}><AlertTriangle/> Contacto externo</button></div>{quoteOpen&&role==="provider"&&<form className="quote-composer" onSubmit={submitQuote}><div><strong>Enviar cotización en la conversación</strong><small>El precio y entrega quedarán vinculados a la solicitud.</small></div><input required value={price} onChange={event=>setPrice(event.target.value)} placeholder="Ej. C$1,200"/><input required value={delivery} onChange={event=>setDelivery(event.target.value)} placeholder="Ej. 5 días"/><button className="button primary"><Send/> Enviar cotización</button></form>}<form className="message-composer" onSubmit={submit}><textarea value={reply} onChange={event=>setReply(event.target.value)} placeholder="Escribí un mensaje con los detalles del acuerdo…" rows={2}/><button className="button primary" disabled={!reply.trim()} aria-label="Enviar mensaje"><Send/> Enviar</button></form></footer>}
-    </main>
-    <aside className="chat-context"><RequestSummary request={request} providerName={provider.publicName} offerName={offer?.name}/><section className="chat-context-section"><h2>Próxima acción</h2>{request.status==="OPEN"&&<p>El proveedor debe responder para iniciar la negociación.</p>}{request.status==="IN_CONVERSATION"&&<p>Definan precio, alcance y fecha de entrega.</p>}{request.status==="QUOTE_SENT"&&<>{role==="requester"?<><p>Revisá precio y entrega antes de aceptar.</p><button className="button primary full" onClick={()=>acceptQuote(request.id)}>Aceptar cotización</button></>:<p>La cotización espera respuesta del cliente.</p>}</>}{request.status==="QUOTE_ACCEPTED"&&<p>El acuerdo está aceptado. Confirmen cuando el trabajo termine.</p>}{request.status==="COMPLETED"&&<p className="success-note"><BadgeCheck/> Reseña verificada desbloqueada.</p>}</section><section className="chat-context-section"><h2>Confirmación bilateral</h2><div className="confirmation-row"><span className={request.confirmedByRequesterAt?"done":""}>{request.confirmedByRequesterAt?<Check/>:<Circle/>} Cliente</span><span className={request.confirmedByProviderAt?"done":""}>{request.confirmedByProviderAt?<Check/>:<Circle/>} Proveedor</span></div>{request.status!=="COMPLETED"&&<><p className="form-note">Tu cuenta solo puede confirmar como {role==="provider"?"proveedor":"cliente"}.</p><button className="button secondary full" disabled={role==="provider"?!!request.confirmedByProviderAt:!!request.confirmedByRequesterAt} onClick={()=>confirm(request.id)}>Confirmar como {role==="provider"?"proveedor":"cliente"}</button><button className="text-button danger" onClick={()=>close(request.id)}>Cerrar solicitud</button></>}</section></aside>
-    {externalOpen&&<div className="dialog-backdrop"><section className="dialog"><div className="dialog-head"><div><span className="eyebrow">Protegé tu historial</span><h2>¿Continuar fuera de la plataforma?</h2></div><button onClick={()=>setExternalOpen(false)} aria-label="Cerrar"><X/></button></div><p>Si seguís la negociación fuera de la plataforma, no podremos verificar el acuerdo ni desbloquear reseñas.</p><button className="button primary" onClick={()=>setExternalOpen(false)}>Seguir en la app</button></section></div>}
-    {reportOpen&&<div className="dialog-backdrop"><form className="dialog" onSubmit={event=>{event.preventDefault();const clean=sanitizePlainText(reportText);if(clean.length<20)return;addReport({id:crypto.randomUUID(),reporterId:current.id,targetType:"REQUEST",targetId:request.id,reason:reportReason,description:clean,status:"PENDING",createdAt:new Date().toISOString()});setReportOpen(false);setReportText("");}}><div className="dialog-head"><div><span className="eyebrow">Revisión humana</span><h2>Reportar conversación</h2></div><button type="button" onClick={()=>setReportOpen(false)} aria-label="Cerrar"><X/></button></div><label>Motivo<select value={reportReason} onChange={event=>setReportReason(event.target.value)}><option>Conducta sospechosa</option><option>Spam</option><option>Información engañosa</option><option>Otro</option></select></label><label>Descripción<textarea required minLength={20} value={reportText} onChange={event=>setReportText(event.target.value)} placeholder="Explicá qué ocurrió con al menos 20 caracteres"/></label><button className="button primary" disabled={sanitizePlainText(reportText).length<20}><Flag/> Enviar reporte</button></form></div>}
-  </div>;
+export default function ChatPage() {
+  const { requestId } = useParams();
+  const { user } = useAuthStore();
+  const {
+    threads,
+    currentThread,
+    fetchThreadsByProvider,
+    fetchThreadsBySender,
+    getThread,
+    addMessage,
+    updateThread,
+    isLoading,
+  } = useQuotesStore();
+  const { currentProvider, getProvider } = useProvidersStore();
+
+  const [actor, setActor] = useState<"provider" | "requester">("provider");
+  const [reply, setReply] = useState("");
+  const [search, setSearch] = useState("");
+  const [quoteOpen, setQuoteOpen] = useState(false);
+  const [price, setPrice] = useState(currentThread?.quotedPriceLabel || "");
+  const [delivery, setDelivery] = useState(currentThread?.quotedDeliveryTime || "");
+  const [externalOpen, setExternalOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportText, setReportText] = useState("");
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  const thread = currentThread;
+  const provider = currentProvider?.provider;
+
+  useEffect(() => {
+    if (!user) return;
+    if (user.role === "PROVIDER" && user.providers?.[0]?.id) {
+      fetchThreadsByProvider(user.providers[0].id);
+    } else {
+      fetchThreadsBySender(user.id);
+    }
+  }, [user, fetchThreadsByProvider, fetchThreadsBySender]);
+
+  useEffect(() => {
+    if (requestId) {
+      getThread(requestId);
+    }
+  }, [requestId, getThread]);
+
+  useEffect(() => {
+    if (thread?.providerId) {
+      getProvider(thread.providerId);
+    }
+  }, [thread?.providerId, getProvider]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [thread?.messages.length]);
+
+  const conversations = threads
+    .filter(item => {
+      if (!search) return true;
+      const providerName = item.providerDisplayName || "";
+      return `${item.subject} ${providerName}`.toLowerCase().includes(search.toLowerCase());
+    })
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!reply.trim() || !requestId) return;
+    try {
+      await addMessage(requestId, reply.trim(), actor);
+      setReply("");
+      await getThread(requestId);
+    } catch (e) {
+      console.error("Send message error:", e);
+    }
+  };
+
+  const handleSubmitQuote = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!price.trim() || !delivery.trim() || !requestId) return;
+    try {
+      await updateThread(requestId, {
+        quotedPriceLabel: price.trim(),
+        quotedDeliveryTime: delivery.trim(),
+        status: "QUOTE_SENT",
+      });
+      setQuoteOpen(false);
+      await getThread(requestId);
+    } catch (e) {
+      console.error("Send quote error:", e);
+    }
+  };
+
+  const handleAcceptQuote = async () => {
+    if (!requestId) return;
+    try {
+      await updateThread(requestId, { status: "QUOTE_ACCEPTED" });
+      await getThread(requestId);
+    } catch (e) {
+      console.error("Accept quote error:", e);
+    }
+  };
+
+  const handleConfirm = async (as: "requester" | "provider") => {
+    if (!requestId) return;
+    try {
+      if (as === "requester") {
+        await updateThread(requestId, { confirmedByRequesterAt: new Date().toISOString() });
+      } else {
+        await updateThread(requestId, { confirmedByProviderAt: new Date().toISOString(), status: "COMPLETED" });
+      }
+      await getThread(requestId);
+    } catch (e) {
+      console.error("Confirm error:", e);
+    }
+  };
+
+  const handleClose = async () => {
+    if (!requestId || !user) return;
+    try {
+      const newStatus = user.role === "PROVIDER" ? "CLOSED_PROVIDER" : "CLOSED_REQUESTER";
+      await updateThread(requestId, { status: newStatus });
+      await getThread(requestId);
+    } catch (e) {
+      console.error("Close error:", e);
+    }
+  };
+
+  if (!requestId) {
+    return (
+      <div className="content-page">
+        <h1>Conversación no encontrada</h1>
+        <Link className="button primary" to="/requests">Volver a solicitudes</Link>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="content-page">
+        <div className="skeleton-list">
+          <div className="skeleton-item skeleton-rect" style={{ height: 64, borderRadius: 12 }} />
+          <div className="skeleton-item skeleton-rect" style={{ height: 200 }} />
+          <div className="skeleton-item skeleton-rect" style={{ height: 80 }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!thread) {
+    return (
+      <div className="content-page">
+        <h1>Conversación no encontrada</h1>
+        <Link className="button primary" to="/requests">Volver a solicitudes</Link>
+      </div>
+    );
+  }
+
+  const lastMessage = thread.messages.at(-1);
+  const providerName = thread.providerDisplayName || "Proveedor";
+  const clientName = thread.clientName || "Cliente";
+
+  return (
+    <div className="chat-page">
+      <aside className="chat-conversations">
+        <div className="chat-sidebar-head">
+          <Link to="/requests" className="back-link">
+            <ArrowLeft /> Solicitudes
+          </Link>
+          <h1>Conversaciones</h1>
+          <p>Acuerdos vinculados a solicitudes</p>
+        </div>
+        <label className="chat-search">
+          <Search />
+          <input
+            value={search}
+            onChange={event => setSearch(event.target.value)}
+            placeholder="Buscar conversación"
+          />
+        </label>
+        <nav className="conversation-list">
+          {conversations.map(item => {
+            const itemLastMsg = item.messages.at(-1);
+            return (
+              <Link
+                key={item.id}
+                to={`/requests/${item.id}/chat`}
+                className={item.id === requestId ? "active" : ""}
+              >
+                <span className="conversation-avatar">
+                  {(item.providerDisplayName || "PR").slice(0, 2).toUpperCase()}
+                </span>
+                <span className="conversation-copy">
+                  <strong>{item.providerDisplayName || "Proveedor"}</strong>
+                  <b>{item.subject}</b>
+                  <small>{itemLastMsg?.text}</small>
+                </span>
+                <span className="conversation-meta">
+                  <time>{item.dateLabel || new Date(item.createdAt).toLocaleDateString("es-NI", { day: "numeric", month: "short" })}</time>
+                </span>
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+
+      <main className="chat-thread">
+        <header className="chat-thread-header">
+          <div>
+            <span className="conversation-avatar large">
+              {providerName.slice(0, 2).toUpperCase()}
+            </span>
+            <span>
+              <strong>{providerName}</strong>
+              <small>
+                {thread.subject}
+                {thread.catalogItemId ? " · Producto" : ""}
+              </small>
+            </span>
+          </div>
+          <div className="chat-header-actions">
+            <RequestStatusBadge status={thread.status as any} />
+            <label>
+              Escribís como
+              <select
+                value={actor}
+                onChange={event => setActor(event.target.value as "provider" | "requester")}
+              >
+                <option value="provider">Proveedor</option>
+                <option value="requester">Cliente</option>
+              </select>
+            </label>
+            <button
+              className="icon-button"
+              onClick={() => setReportOpen(true)}
+              aria-label="Reportar conversación"
+            >
+              <Flag />
+            </button>
+          </div>
+        </header>
+
+        <details className="chat-mobile-summary">
+          <summary>Resumen de la solicitud <ChevronDown /></summary>
+          <RequestSummaryUI thread={thread} providerName={providerName} />
+        </details>
+
+        <section className="retention-banner">
+          <ShieldCheck />
+          <div>
+            <strong>Conversación protegida</strong>
+            <p>
+              Mantener el acuerdo acá permite dar seguimiento, confirmar el trabajo y desbloquear una reseña verificada.
+            </p>
+          </div>
+        </section>
+
+        <section className="message-stream" aria-live="polite">
+          {thread.messages.map((message, idx) => (
+            <article className="message-block-wrap" key={message.id || idx}>
+              <MessageBlock
+                message={message}
+                providerName={providerName}
+                requesterName={clientName}
+              />
+            </article>
+          ))}
+          <div ref={bottomRef} />
+        </section>
+
+        {thread.status !== "COMPLETED" && !thread.status.startsWith("CLOSED") && (
+          <footer className="chat-composer">
+            <div className="quick-replies">
+              {quickReplies[actor].map(text => (
+                <button key={text} onClick={() => setReply(text)}>
+                  {text}
+                </button>
+              ))}
+            </div>
+            <div className="chat-quick-actions">
+              {actor === "provider" && (
+                <button onClick={() => setQuoteOpen(!quoteOpen)}>
+                  <HandCoins /> Enviar precio estimado
+                </button>
+              )}
+              <button
+                onClick={() => addMessage(requestId, actor === "provider" ? "¿Podés compartir cantidad, medidas y fecha deseada?" : "Te comparto los detalles necesarios para preparar la cotización.", actor)}
+              >
+                <FileText /> {actor === "provider" ? "Pedir más detalles" : "Enviar detalles"}
+              </button>
+              <button onClick={() => handleConfirm(actor as any)}>
+                <CheckCheck /> Confirmar trabajo
+              </button>
+              <button onClick={() => setExternalOpen(true)}>
+                <AlertTriangle /> Contacto externo
+              </button>
+            </div>
+
+            {quoteOpen && (
+              <form className="quote-composer" onSubmit={handleSubmitQuote}>
+                <div>
+                  <strong>Enviar cotización en la conversación</strong>
+                  <small>El precio y entrega quedarán vinculados a la solicitud.</small>
+                </div>
+                <input
+                  required
+                  value={price}
+                  onChange={event => setPrice(event.target.value)}
+                  placeholder="Ej. C$1,200"
+                />
+                <input
+                  required
+                  value={delivery}
+                  onChange={event => setDelivery(event.target.value)}
+                  placeholder="Ej. 5 días"
+                />
+                <button className="button primary">
+                  <Send /> Enviar cotización
+                </button>
+              </form>
+            )}
+
+            <form className="message-composer" onSubmit={handleSubmit}>
+              <textarea
+                value={reply}
+                onChange={event => setReply(event.target.value)}
+                placeholder="Escribí un mensaje con los detalles del acuerdo…"
+                rows={2}
+              />
+              <button className="button primary" disabled={!reply.trim()} aria-label="Enviar mensaje">
+                <Send /> Enviar
+              </button>
+            </form>
+          </footer>
+        )}
+      </main>
+
+      <aside className="chat-context">
+        <RequestSummaryUI thread={thread} providerName={providerName} />
+        <section className="chat-context-section">
+          <h2>Próxima acción</h2>
+          {thread.status === "OPEN" && (
+            <p>El proveedor debe responder para iniciar la negociación.</p>
+          )}
+          {thread.status === "IN_CONVERSATION" && (
+            <p>Definan precio, alcance y fecha de entrega.</p>
+          )}
+          {thread.status === "QUOTE_SENT" && (
+            <>
+              <p>La cotización espera respuesta del cliente.</p>
+              <button className="button primary full" onClick={handleAcceptQuote}>
+                Aceptar cotización
+              </button>
+            </>
+          )}
+          {thread.status === "QUOTE_ACCEPTED" && (
+            <p>El acuerdo está aceptado. Confirmen cuando el trabajo termine.</p>
+          )}
+          {thread.status === "COMPLETED" && (
+            <p className="success-note">
+              <BadgeCheck /> Reseña verificada desbloqueada.
+            </p>
+          )}
+        </section>
+        <section className="chat-context-section">
+          <h2>Confirmación bilateral</h2>
+          <div className="confirmation-row">
+            <span className={thread.confirmedByRequesterAt ? "done" : ""}>
+              {thread.confirmedByRequesterAt ? <Check /> : <Circle />} Cliente
+            </span>
+            <span className={thread.confirmedByProviderAt ? "done" : ""}>
+              {thread.confirmedByProviderAt ? <Check /> : <Circle />} Proveedor
+            </span>
+          </div>
+          {thread.status !== "COMPLETED" && (
+            <>
+              <button
+                className="button secondary full"
+                disabled={!!thread.confirmedByRequesterAt}
+                onClick={() => handleConfirm("requester")}
+              >
+                Confirmar como cliente
+              </button>
+              <button
+                className="button secondary full"
+                disabled={!!thread.confirmedByProviderAt}
+                onClick={() => handleConfirm("provider")}
+              >
+                Confirmar como proveedor
+              </button>
+              <button className="text-button danger" onClick={handleClose}>
+                Cerrar solicitud
+              </button>
+            </>
+          )}
+        </section>
+      </aside>
+
+      {externalOpen && (
+        <div className="dialog-backdrop">
+          <section className="dialog">
+            <div className="dialog-head">
+              <div>
+                <span className="eyebrow">Protegé tu historial</span>
+                <h2>¿Salir de la conversación?</h2>
+              </div>
+              <button onClick={() => setExternalOpen(false)}><X /></button>
+            </div>
+            <p>
+              Podés continuar fuera de la app, pero esa conversación no contará para solicitudes completadas, reputación ni reseñas verificadas.
+            </p>
+            <button className="button primary" onClick={() => setExternalOpen(false)}>
+              Seguir en la app
+            </button>
+            <button className="button secondary" disabled>
+              Contacto externo no disponible para el MVP
+            </button>
+          </section>
+        </div>
+      )}
+
+      {reportOpen && (
+        <div className="dialog-backdrop">
+          <form
+            className="dialog"
+            onSubmit={event => {
+              event.preventDefault();
+              setReportOpen(false);
+              setReportText("");
+            }}
+          >
+            <div className="dialog-head">
+              <div>
+                <span className="eyebrow">Revisión humana</span>
+                <h2>Reportar conversación</h2>
+              </div>
+              <button type="button" onClick={() => setReportOpen(false)}><X /></button>
+            </div>
+            <textarea
+              required
+              minLength={10}
+              value={reportText}
+              onChange={event => setReportText(event.target.value)}
+              placeholder="Explicá qué ocurrió"
+            />
+            <button className="button primary">
+              <Flag /> Enviar reporte
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
 }
 
-function MessageBlock({message,providerName,requesterName}:{message:ChatMessage;providerName:string;requesterName:string}){if(message.author==="system")return <article className={`system-message type-${message.type.toLowerCase()}`}><Info/><div><strong>{message.type==="QUOTE_SUMMARY"?"Cotización":message.type==="REVIEW_UNLOCKED"?"Reseña desbloqueada":"Actualización"}</strong><p>{message.text}</p></div></article>;return <article className={`chat-message ${message.author}`}><div className="message-author"><strong>{message.author==="provider"?providerName:requesterName}</strong><time>{new Date(message.createdAt).toLocaleTimeString("es-NI",{hour:"2-digit",minute:"2-digit"})}</time></div><p>{message.text}</p>{message.type!=="TEXT"&&<small>{message.type.replaceAll("_"," ")}</small>}</article>}
-function RequestSummary({request,providerName,offerName}:{request:QuoteRequest;providerName:string;offerName?:string}){return <section className="chat-context-section request-summary"><span className="eyebrow">Solicitud vinculada</span><h2>{request.title}</h2><p>{request.description}</p><dl><div><dt>Proveedor</dt><dd>{providerName}</dd></div>{offerName&&<div><dt>Oferta</dt><dd>{offerName}</dd></div>}<div><dt>Ubicación</dt><dd>{request.location||"Por acordar"}</dd></div><div><dt>Estado</dt><dd><RequestStatusBadge status={request.status}/></dd></div>{request.quotedPriceLabel&&<div><dt>Cotización</dt><dd>{request.quotedPriceLabel}</dd></div>}{request.quotedDeliveryTime&&<div><dt>Entrega</dt><dd>{request.quotedDeliveryTime}</dd></div>}</dl><Link className="text-link" to={`/requests/${request.id}`}>Ver detalle completo</Link></section>}
+function MessageBlock({
+  message,
+  providerName,
+  requesterName,
+}: {
+  message: { id?: string; authorRole?: string; author?: string; body?: string; text?: string; time?: string; createdAt?: string };
+  providerName: string;
+  requesterName: string;
+}) {
+  const role = message.authorRole || message.author || "client";
+  const text = message.body || message.text || "";
+  const time = message.time || (message.createdAt ? new Date(message.createdAt).toLocaleTimeString("es-NI", { hour: "2-digit", minute: "2-digit" }) : "");
+
+  if (role === "system") {
+    return (
+      <article className="system-message type-quote">
+        <Info />
+        <div>
+          <strong>Información</strong>
+          <p>{text}</p>
+        </div>
+      </article>
+    );
+  }
+
+  return (
+    <article className={`chat-message ${role === "provider" ? "provider" : "client"}`}>
+      <div className="message-author">
+        <strong>{role === "provider" ? providerName : requesterName}</strong>
+        <time>{time}</time>
+      </div>
+      <p>{text}</p>
+    </article>
+  );
+}
+
+function RequestSummaryUI({
+  thread,
+  providerName,
+}: {
+  thread: { subject?: string; body?: string; quotedPriceLabel?: string | null; quotedDeliveryTime?: string | null; status?: string; createdAt?: string };
+  providerName: string;
+}) {
+  const clientMsg = thread.body;
+  return (
+    <section className="chat-context-section request-summary">
+      <span className="eyebrow">Solicitud vinculada</span>
+      <h2>{thread.subject}</h2>
+      <p>{clientMsg || "Sin descripción"}</p>
+      <dl>
+        <div>
+          <dt>Proveedor</dt>
+          <dd>{providerName}</dd>
+        </div>
+        <div>
+          <dt>Estado</dt>
+          <dd><RequestStatusBadge status={(thread.status as any) || "OPEN"} /></dd>
+        </div>
+        {thread.quotedPriceLabel && (
+          <div>
+            <dt>Cotización</dt>
+            <dd>{thread.quotedPriceLabel}</dd>
+          </div>
+        )}
+        {thread.quotedDeliveryTime && (
+          <div>
+            <dt>Entrega</dt>
+            <dd>{thread.quotedDeliveryTime}</dd>
+          </div>
+        )}
+      </dl>
+      <Link className="text-link" to={`/requests/${thread.subject}`}>Ver detalle completo</Link>
+    </section>
+  );
+}

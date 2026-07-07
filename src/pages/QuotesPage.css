@@ -668,6 +668,23 @@
   }
 }
 
+/* ============================================
+   Loading State
+   ============================================ */
+.chat-loading-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  text-align: center;
+}
+.chat-loading-state span {
+  font-family: "Inter", system-ui, sans-serif;
+  font-size: 0.875rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
 /* ============================================================
    Empty State — friendly first-conversation screen
    ============================================================ */

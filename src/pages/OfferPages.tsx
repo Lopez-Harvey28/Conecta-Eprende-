@@ -1,15 +1,467 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Archive, ArrowLeft, Edit3, Eye, MessageCircle, Package, Plus, Save, ToggleLeft, ToggleRight } from "lucide-react";
-import { CATEGORY_OPTIONS, CREATIVE_CITIES, availabilityLabel, type Availability, type OfferStatus, type OfferType, type PriceType, type ProviderOffer } from "../lib/mvp-data";
-import { useMvpStore } from "../stores/mvp-store";
+import {
+  Archive, ArrowLeft, Edit3, Eye, MessageCircle, Package, Plus, Save,
+  ToggleLeft, ToggleRight,
+} from "lucide-react";
+import { CATEGORY_OPTIONS, CREATIVE_CITIES, priceLabel } from "../lib/mvp-data";
+import { useAuthStore } from "../stores/auth-store";
+import { useProvidersStore } from "../stores/providers-store";
 import { EmptyState, PageHeader, TrustBadge } from "../components/mvp/Ui";
+import { useEffect } from "react";
 
-const typeLabel:Record<OfferType,string>={PRODUCT:"Producto",SERVICE:"Servicio",PACKAGE:"Paquete",PORTFOLIO_ITEM:"Portafolio"};
-const priceTypeLabel:Record<PriceType,string>={FIXED:"Precio fijo",FROM:"Desde",NEGOTIABLE:"Negociable",PER_UNIT:"Por unidad",PER_PROJECT:"Por proyecto"};
+const typeLabel: Record<string, string> = {
+  PRODUCTO_FINAL: "Producto",
+  SERVICIO_ESPECIALIZADO: "Servicio",
+  EQUIPO_PRODUCTIVO: "Equipo",
+  ALQUILER_EQUIPO: "Alquiler",
+  REPARACION_MANTENIMIENTO: "Reparación",
+  CAPACITACION: "Capacitación",
+  INSUMO: "Insumo",
+  MATERIA_PRIMA: "Materia prima",
+};
 
-export function ManageOffersPage(){const current=useMvpStore(state=>state.currentUser);const offers=useMvpStore(state=>state.offers.filter(item=>item.providerId===current.providerId));const update=useMvpStore(state=>state.updateOffer);const archive=useMvpStore(state=>state.archiveOffer);const [filter,setFilter]=useState("ALL");const visible=offers.filter(item=>filter==="ALL"||item.status===filter||item.type===filter);return <div className="content-page"><PageHeader eyebrow="Catálogo público" title="Productos y servicios" description="Administrá ofertas concretas para que los clientes sepan qué pueden solicitar." actions={<Link className="button primary" to="/me/products/new"><Plus/> Agregar producto o servicio</Link>}/><div className="offer-filters">{[["ALL","Todos"],["ACTIVE","Activos"],["INACTIVE","Inactivos"],["PRODUCT","Productos"],["SERVICE","Servicios"],["PACKAGE","Paquetes"],["PORTFOLIO_ITEM","Portafolio"]].map(([value,label])=><button className={filter===value?"active":""} onClick={()=>setFilter(value)} key={value}>{label}</button>)}</div>{visible.length?<div className="offer-manager-list">{visible.map(offer=><article key={offer.id}><img src={offer.imageUrls[0]} alt=""/><div><span className="eyebrow">{typeLabel[offer.type]} · {offer.status==="ACTIVE"?"Activo":"Inactivo"}</span><h2>{offer.name}</h2><p>{offer.shortDescription}</p><small>{offer.priceLabel} · {offer.estimatedDelivery||"Entrega por acordar"} · {offer.inquiryCount} consultas</small></div><div className="offer-manager-actions"><button onClick={()=>update(offer.id,{status:offer.status==="ACTIVE"?"INACTIVE":"ACTIVE"})}>{offer.status==="ACTIVE"?<ToggleRight/>:<ToggleLeft/>}{offer.status==="ACTIVE"?"Desactivar":"Activar"}</button><Link to={`/providers/${offer.providerId}/products/${offer.id}`}><Eye/> Vista pública</Link><Link to={`/me/products/${offer.id}/edit`}><Edit3/> Editar</Link><button className="danger" onClick={()=>archive(offer.id)}><Archive/> Archivar</button></div></article>)}</div>:<EmptyState icon={<Package/>} title="No hay ofertas en este filtro">Agregá tu primer producto o servicio para explicar mejor qué ofrecés.</EmptyState>}</div>}
+const availabilityOptions: Record<string, string> = {
+  DISPONIBLE: "Disponible",
+  OCUPADO: "Ocupado",
+  BAJO_PEDIDO: "Bajo pedido",
+  NO_DISPONIBLE_TEMPORALMENTE: "No disponible",
+};
 
-export function OfferEditorPage(){const {productId}=useParams();const current=useMvpStore(state=>state.currentUser);const existing=useMvpStore(state=>state.offers.find(item=>item.id===productId&&item.providerId===current.providerId));const add=useMvpStore(state=>state.addOffer);const update=useMvpStore(state=>state.updateOffer);const navigate=useNavigate();const [form,setForm]=useState({name:existing?.name||"",type:existing?.type||"PRODUCT" as OfferType,category:existing?.category||CATEGORY_OPTIONS[0],shortDescription:existing?.shortDescription||"",fullDescription:existing?.fullDescription||"",priceType:existing?.priceType||"FROM" as PriceType,priceLabel:existing?.priceLabel||"",minimumOrder:existing?.minimumOrder||"",estimatedDelivery:existing?.estimatedDelivery||"",availability:existing?.availability||"AVAILABLE" as Availability,coverage:existing?.cityCoverage[0]||"Managua",tags:existing?.tags.join(", ")||"",image:existing?.imageUrls[0]||"",status:existing?.status||"ACTIVE" as OfferStatus});const [errors,setErrors]=useState<Record<string,string>>({});const submit=(event:FormEvent)=>{event.preventDefault();const next:Record<string,string>={};if(!form.name.trim())next.name="Ingresá el nombre de la oferta.";if(form.shortDescription.trim().length<20)next.shortDescription="La descripción corta debe tener al menos 20 caracteres.";if(form.priceType!=="NEGOTIABLE"&&!form.priceLabel.trim())next.priceLabel="Indicá el precio visible para clientes.";if(["PRODUCT","PACKAGE"].includes(form.type)&&!form.estimatedDelivery.trim())next.estimatedDelivery="Indicá un tiempo estimado de entrega.";setErrors(next);if(Object.keys(next).length)return;const timestamp=new Date().toISOString();const offer:ProviderOffer={id:existing?.id||crypto.randomUUID(),providerId:current.providerId,type:form.type,status:form.status,name:form.name.trim(),category:form.category,shortDescription:form.shortDescription.trim(),fullDescription:form.fullDescription.trim()||form.shortDescription.trim(),priceType:form.priceType,priceLabel:form.priceType==="NEGOTIABLE"?(form.priceLabel.trim()||"Precio negociable"):form.priceLabel.trim(),minimumOrder:form.minimumOrder.trim()||undefined,estimatedDelivery:form.estimatedDelivery.trim()||undefined,availability:form.availability,cityCoverage:[form.coverage as any],tags:form.tags.split(",").map(item=>item.trim()).filter(Boolean),imageUrls:form.image.trim()?[form.image.trim()]:[],viewCount:existing?.viewCount||0,inquiryCount:existing?.inquiryCount||0,createdAt:existing?.createdAt||timestamp,updatedAt:timestamp};existing?update(existing.id,offer):add(offer);navigate("/me/products");};return <div className="narrow-page"><Link className="back-link" to="/me/products"><ArrowLeft/> Productos y servicios</Link><PageHeader eyebrow="Editor de oferta" title={existing?"Editar producto o servicio":"Agregar producto o servicio"} description="Publicá información concreta, precios comprensibles y tiempos realistas."/><form className="form-panel" onSubmit={submit}><label>Nombre<input value={form.name} onChange={event=>setForm({...form,name:event.target.value})}/>{errors.name&&<span className="field-error">{errors.name}</span>}</label><div className="form-grid"><label>Tipo<select value={form.type} onChange={event=>setForm({...form,type:event.target.value as OfferType})}>{Object.entries(typeLabel).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label><label>Categoría<select value={form.category} onChange={event=>setForm({...form,category:event.target.value})}>{CATEGORY_OPTIONS.map(category=><option key={category}>{category}</option>)}</select></label></div><label>Descripción corta<textarea value={form.shortDescription} onChange={event=>setForm({...form,shortDescription:event.target.value})}/>{errors.shortDescription&&<span className="field-error">{errors.shortDescription}</span>}</label><label>Descripción completa<textarea rows={5} value={form.fullDescription} onChange={event=>setForm({...form,fullDescription:event.target.value})}/></label><div className="form-grid"><label>Tipo de precio<select value={form.priceType} onChange={event=>setForm({...form,priceType:event.target.value as PriceType})}>{Object.entries(priceTypeLabel).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label><label>Precio visible<input value={form.priceLabel} onChange={event=>setForm({...form,priceLabel:event.target.value})} placeholder="Ej. Desde C$12 por unidad"/>{errors.priceLabel&&<span className="field-error">{errors.priceLabel}</span>}</label><label>Pedido mínimo<input value={form.minimumOrder} onChange={event=>setForm({...form,minimumOrder:event.target.value})} placeholder="Ej. 100 unidades"/></label><label>Entrega estimada<input value={form.estimatedDelivery} onChange={event=>setForm({...form,estimatedDelivery:event.target.value})} placeholder="Ej. 5 días"/>{errors.estimatedDelivery&&<span className="field-error">{errors.estimatedDelivery}</span>}</label><label>Disponibilidad<select value={form.availability} onChange={event=>setForm({...form,availability:event.target.value as Availability})}>{Object.entries(availabilityLabel).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label><label>Cobertura<select value={form.coverage} onChange={event=>setForm({...form,coverage:event.target.value})}>{CREATIVE_CITIES.map(city=><option key={city}>{city}</option>)}</select></label></div><label>Etiquetas<input value={form.tags} onChange={event=>setForm({...form,tags:event.target.value})} placeholder="kraft, ecológico, por mayor"/><span className="field-hint">Separalas con comas.</span></label><label>URL de imagen<input value={form.image} onChange={event=>setForm({...form,image:event.target.value})}/></label><label>Estado<select value={form.status} onChange={event=>setForm({...form,status:event.target.value as OfferStatus})}><option value="ACTIVE">Activo</option><option value="INACTIVE">Inactivo</option></select></label><button className="button primary"><Save/> Guardar oferta</button></form></div>}
+export function ManageOffersPage() {
+  const { user } = useAuthStore();
+  const { currentProvider, getProvider } = useProvidersStore();
 
-export function OfferDetailPage(){const {providerId,productId}=useParams();const provider=useMvpStore(state=>state.providers.find(item=>item.id===providerId));const offer=useMvpStore(state=>state.offers.find(item=>item.id===productId&&item.providerId===providerId&&item.status==="ACTIVE"));if(!provider||!offer)return <EmptyState title="Oferta no encontrada">Esta oferta está inactiva o ya no está disponible.</EmptyState>;return <div className="content-page"><Link className="back-link" to={`/providers/${provider.id}`}><ArrowLeft/> Perfil de {provider.publicName}</Link><div className="offer-detail"><img src={offer.imageUrls[0]||provider.portfolioImages[0]} alt={`Muestra de ${offer.name}`}/><main><span className="eyebrow">{typeLabel[offer.type]} · {offer.category}</span><h1>{offer.name}</h1><p className="lead">{offer.fullDescription}</p><div className="offer-detail-facts"><div><span>Precio</span><strong>{offer.priceLabel}</strong></div><div><span>Pedido mínimo</span><strong>{offer.minimumOrder||"No aplica"}</strong></div><div><span>Entrega</span><strong>{offer.estimatedDelivery||"Por acordar"}</strong></div><div><span>Disponibilidad</span><strong>{availabilityLabel[offer.availability]}</strong></div></div><div className="tag-list">{offer.tags.map(tag=><span key={tag}>{tag}</span>)}</div><section className="offer-provider-summary"><div><strong>{provider.publicName}</strong><span>{provider.city} · {provider.category}</span></div><TrustBadge score={provider.trustScore}/></section><div className="card-actions"><Link className="button primary" to={`/requests/new?providerId=${provider.id}&productId=${offer.id}`}><MessageCircle/> Consultar por este producto</Link><Link className="button secondary" to={`/requests/new?providerId=${provider.id}&productId=${offer.id}`}><MessageCircle/> Chatear sobre este producto</Link></div><p className="form-note">La conversación quedará vinculada a esta oferta y podrá desbloquear una reseña verificada al completar el trabajo.</p></main></div></div>}
+  const providerId = user?.providers?.[0]?.id;
+  const catalogItems = currentProvider?.catalogItems || [];
+  const isLoading = false;
+
+  useEffect(() => {
+    if (providerId) {
+      getProvider(providerId);
+    }
+  }, [providerId, getProvider]);
+
+  const [filter, setFilter] = useState("ALL");
+
+  const filteredItems = catalogItems.filter((item: any) => {
+    if (filter === "ALL") return true;
+    if (filter === "ACTIVE") return item.availabilityStatus === "DISPONIBLE";
+    if (filter === "INACTIVE") return item.availabilityStatus !== "DISPONIBLE";
+    return item.itemType === filter;
+  });
+
+  const handleToggleStatus = async (item: any) => {
+    const newStatus = item.availabilityStatus === "DISPONIBLE" ? "BAJO_PEDIDO" : "DISPONIBLE";
+    try {
+      await fetch(`/api/catalog-items/${item.id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ availabilityStatus: newStatus }),
+      });
+      if (providerId) getProvider(providerId);
+    } catch (e) {
+      console.error("Toggle status error:", e);
+    }
+  };
+
+  const handleArchive = async (itemId: string) => {
+    try {
+      await fetch(`/api/catalog-items/${itemId}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (providerId) getProvider(providerId);
+    } catch (e) {
+      console.error("Archive error:", e);
+    }
+  };
+
+  const priceDisplay = (item: any) => {
+    if (item.priceMin && item.priceMax) {
+      return `C$ ${item.priceMin.toLocaleString()} - C$ ${item.priceMax.toLocaleString()}`;
+    }
+    if (item.priceMin) return `Desde C$ ${item.priceMin.toLocaleString()}`;
+    return "Por consultar";
+  };
+
+  return (
+    <div className="content-page">
+      <PageHeader
+        eyebrow="Catálogo público"
+        title="Productos y servicios"
+        description="Administrá ofertas concretas para que los clientes sepan qué pueden solicitar."
+        actions={
+          <Link className="button primary" to="/me/products/new">
+            <Plus /> Agregar producto o servicio
+          </Link>
+        }
+      />
+      <div className="offer-filters">
+        {[
+          ["ALL", "Todos"],
+          ["ACTIVE", "Activos"],
+          ["INACTIVE", "Inactivos"],
+          ["PRODUCTO_FINAL", "Productos"],
+          ["SERVICIO_ESPECIALIZADO", "Servicios"],
+        ].map(([value, label]) => (
+          <button
+            className={filter === value ? "active" : ""}
+            onClick={() => setFilter(value)}
+            key={value}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {filteredItems.length ? (
+        <div className="offer-manager-list">
+          {filteredItems.map((item: any) => (
+            <article key={item.id}>
+              <img src={item.mainImageUrl || ""} alt="" />
+              <div>
+                <span className="eyebrow">
+                  {typeLabel[item.itemType] || item.itemType} ·{" "}
+                  {item.availabilityStatus === "DISPONIBLE" ? "Activo" : "Inactivo"}
+                </span>
+                <h2>{item.title}</h2>
+                <p>{item.description?.substring(0, 100)}...</p>
+                <small>
+                  {priceDisplay(item)} · {item.priceUnit || "Por unidad"} · {item.inquiryCount || 0} consultas
+                </small>
+              </div>
+              <div className="offer-manager-actions">
+                <button onClick={() => handleToggleStatus(item)}>
+                  {item.availabilityStatus === "DISPONIBLE" ? (
+                    <ToggleRight />
+                  ) : (
+                    <ToggleLeft />
+                  )}
+                  {item.availabilityStatus === "DISPONIBLE" ? "Desactivar" : "Activar"}
+                </button>
+                <Link to={`/providers/${item.providerId}/products/${item.id}`}>
+                  <Eye /> Vista pública
+                </Link>
+                <Link to={`/me/products/${item.id}/edit`}>
+                  <Edit3 /> Editar
+                </Link>
+                <button className="danger" onClick={() => handleArchive(item.id)}>
+                  <Archive /> Eliminar
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <EmptyState icon={<Package />} title="No hay ofertas en este filtro">
+          Agregá tu primer producto o servicio para explicar mejor qué ofrecés.
+        </EmptyState>
+      )}
+    </div>
+  );
+}
+
+export function OfferEditorPage() {
+  const { productId } = useParams();
+  const { user } = useAuthStore();
+  const { currentProvider, getProvider } = useProvidersStore();
+  const navigate = useNavigate();
+
+  const providerId = user?.providers?.[0]?.id;
+  const catalogItems = currentProvider?.catalogItems || [];
+  const existing = productId ? catalogItems.find((item: any) => item.id === productId) : null;
+
+  useEffect(() => {
+    if (providerId) {
+      getProvider(providerId);
+    }
+  }, [providerId, getProvider]);
+
+  const [form, setForm] = useState({
+    title: "",
+    itemType: "SERVICIO_ESPECIALIZADO",
+    category: CATEGORY_OPTIONS[0],
+    description: "",
+    priceMin: "",
+    priceMax: "",
+    priceUnit: "",
+    city: "Managua",
+    availabilityStatus: "DISPONIBLE",
+    mainImageUrl: "",
+    deliveryAvailable: false,
+    pickupAvailable: false,
+  });
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    if (existing) {
+      setForm({
+        title: existing.title || "",
+        itemType: existing.itemType || "SERVICIO_ESPECIALIZADO",
+        category: existing.category || CATEGORY_OPTIONS[0],
+        description: existing.description || "",
+        priceMin: existing.priceMin ? String(existing.priceMin) : "",
+        priceMax: existing.priceMax ? String(existing.priceMax) : "",
+        priceUnit: existing.priceUnit || "",
+        city: existing.city || "Managua",
+        availabilityStatus: existing.availabilityStatus || "DISPONIBLE",
+        mainImageUrl: existing.mainImageUrl || "",
+        deliveryAvailable: existing.deliveryAvailable || false,
+        pickupAvailable: existing.pickupAvailable || false,
+      });
+    }
+  }, [existing]);
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    const next: Record<string, string> = {};
+    if (!form.title.trim()) next.title = "Ingresá el nombre de la oferta.";
+    if (form.description.trim().length < 20) next.description = "La descripción debe tener al menos 20 caracteres.";
+    setErrors(next);
+    if (Object.keys(next).length) return;
+
+    setIsSaving(true);
+    try {
+      const payload = {
+        providerId,
+        title: form.title.trim(),
+        itemType: form.itemType,
+        category: form.category,
+        description: form.description.trim(),
+        priceMin: form.priceMin ? Number(form.priceMin) : null,
+        priceMax: form.priceMax ? Number(form.priceMax) : null,
+        priceUnit: form.priceUnit || null,
+        city: form.city,
+        availabilityStatus: form.availabilityStatus,
+        mainImageUrl: form.mainImageUrl.trim() || null,
+        deliveryAvailable: form.deliveryAvailable,
+        pickupAvailable: form.pickupAvailable,
+      };
+
+      const url = existing
+        ? `/api/catalog-items/${existing.id}`
+        : "/api/catalog-items";
+      const method = existing ? "PUT" : "POST";
+
+      const res = await fetch(url, {
+        method,
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        navigate("/me/products");
+      } else {
+        setErrors({ submit: data.error || "Error al guardar" });
+      }
+    } catch (e) {
+      setErrors({ submit: "Error de conexión" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div className="narrow-page">
+      <Link className="back-link" to="/me/products">
+        <ArrowLeft /> Productos y servicios
+      </Link>
+      <PageHeader
+        eyebrow="Editor de oferta"
+        title={existing ? "Editar producto o servicio" : "Agregar producto o servicio"}
+        description="Publicá información concreta, precios comprensibles y tiempos realistas."
+      />
+      <form className="form-panel" onSubmit={handleSubmit}>
+        <label>
+          Nombre
+          <input
+            value={form.title}
+            onChange={e => setForm({ ...form, title: e.target.value })}
+          />
+          {errors.title && <span className="field-error">{errors.title}</span>}
+        </label>
+        <div className="form-grid">
+          <label>
+            Tipo
+            <select
+              value={form.itemType}
+              onChange={e => setForm({ ...form, itemType: e.target.value })}
+            >
+              {Object.entries(typeLabel).map(([value, label]) => (
+                <option value={value} key={value}>{label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Categoría
+            <select
+              value={form.category}
+              onChange={e => setForm({ ...form, category: e.target.value })}
+            >
+              {CATEGORY_OPTIONS.map(cat => <option key={cat}>{cat}</option>)}
+            </select>
+          </label>
+        </div>
+        <label>
+          Descripción
+          <textarea
+            value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })}
+          />
+          {errors.description && <span className="field-error">{errors.description}</span>}
+        </label>
+        <div className="form-grid">
+          <label>
+            Precio mínimo (C$)
+            <input
+              type="number"
+              value={form.priceMin}
+              onChange={e => setForm({ ...form, priceMin: e.target.value })}
+              placeholder="Ej. 1000"
+            />
+          </label>
+          <label>
+            Precio máximo (C$)
+            <input
+              type="number"
+              value={form.priceMax}
+              onChange={e => setForm({ ...form, priceMax: e.target.value })}
+              placeholder="Ej. 5000"
+            />
+          </label>
+          <label>
+            Unidad de precio
+            <input
+              value={form.priceUnit}
+              onChange={e => setForm({ ...form, priceUnit: e.target.value })}
+              placeholder="Ej. por unidad, por hora"
+            />
+          </label>
+          <label>
+            Ciudad
+            <select
+              value={form.city}
+              onChange={e => setForm({ ...form, city: e.target.value })}
+            >
+              {CREATIVE_CITIES.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </label>
+          <label>
+            Disponibilidad
+            <select
+              value={form.availabilityStatus}
+              onChange={e => setForm({ ...form, availabilityStatus: e.target.value })}
+            >
+              {Object.entries(availabilityOptions).map(([v, l]) => (
+                <option value={v} key={v}>{l}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <label>
+          URL de imagen principal
+          <input
+            value={form.mainImageUrl}
+            onChange={e => setForm({ ...form, mainImageUrl: e.target.value })}
+          />
+        </label>
+        {errors.submit && <p className="field-error">{errors.submit}</p>}
+        <button className="button primary" disabled={isSaving}>
+          <Save /> {isSaving ? "Guardando..." : "Guardar oferta"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+export function OfferDetailPage() {
+  const { providerId, productId } = useParams();
+  const { currentProvider, getProvider } = useProvidersStore();
+  const navigate = useNavigate();
+
+  const provider = currentProvider?.provider;
+  const catalogItems = currentProvider?.catalogItems || [];
+  const offer = catalogItems.find((item: any) => item.id === productId);
+
+  useEffect(() => {
+    if (providerId) {
+      getProvider(providerId);
+    }
+  }, [providerId, getProvider]);
+
+  if (!provider || !offer) {
+    return (
+      <EmptyState title="Oferta no encontrada">
+        Esta oferta está inactiva o ya no está disponible.
+      </EmptyState>
+    );
+  }
+
+  const photos = currentProvider?.photos || [];
+  const portfolioImages = photos.map((p: any) => p.imageUrl).filter(Boolean);
+
+  const priceDisplay = () => {
+    if (offer.priceMin && offer.priceMax) {
+      return `C$ ${offer.priceMin.toLocaleString()} - C$ ${offer.priceMax.toLocaleString()}`;
+    }
+    if (offer.priceMin) return `Desde C$ ${offer.priceMin.toLocaleString()}`;
+    return "Por consultar";
+  };
+
+  return (
+    <div className="content-page">
+      <Link className="back-link" to={`/providers/${provider.id}`}>
+        <ArrowLeft /> Perfil de {provider.displayName}
+      </Link>
+      <div className="offer-detail">
+        <img
+          src={offer.mainImageUrl || portfolioImages[0] || ""}
+          alt={`Muestra de ${offer.title}`}
+        />
+        <main>
+          <span className="eyebrow">
+            {typeLabel[offer.itemType] || offer.itemType} · {offer.category}
+          </span>
+          <h1>{offer.title}</h1>
+          <p className="lead">{offer.description}</p>
+          <div className="offer-detail-facts">
+            <div>
+              <span>Precio</span>
+              <strong>{priceDisplay()}</strong>
+            </div>
+            <div>
+              <span>Entrega</span>
+              <strong>{offer.priceUnit || "Por acordar"}</strong>
+            </div>
+            <div>
+              <span>Disponibilidad</span>
+              <strong>{availabilityOptions[offer.availabilityStatus] || offer.availabilityStatus}</strong>
+            </div>
+          </div>
+          <section className="offer-provider-summary">
+            <div>
+              <strong>{provider.displayName}</strong>
+              <span>{provider.city} · {provider.category}</span>
+            </div>
+            <TrustBadge score={provider.trustScore?.finalScore ?? 0} />
+          </section>
+          <div className="card-actions">
+            <Link
+              className="button primary"
+              to={`/requests/new?providerId=${provider.id}&productId=${offer.id}`}
+            >
+              <MessageCircle /> Consultar por este producto
+            </Link>
+          </div>
+          <p className="form-note">
+            La conversación quedará vinculada a esta oferta y podrá desbloquear una reseña verificada al completar el trabajo.
+          </p>
+        </main>
+      </div>
+    </div>
+  );
+}

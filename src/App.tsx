@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import RootLayout from "./components/layout/RootLayout";
+import ProtectedRoute from "./components/auth/ProtectedRoute";
 import HomePage from "./pages/HomePage";
 import SearchPage from "./pages/SearchPage";
 import ProviderPage from "./pages/ProviderPage";
@@ -12,4 +13,144 @@ import UnavailablePage from "./pages/UnavailablePage";
 import ChatPage from "./pages/ChatPage";
 import MyProfileDashboardPage from "./pages/MyProfileDashboardPage";
 import { ManageOffersPage, OfferDetailPage, OfferEditorPage } from "./pages/OfferPages";
-export default function App(){return <BrowserRouter><Routes><Route element={<RootLayout/>}><Route path="/" element={<HomePage/>}/><Route path="/search" element={<SearchPage/>}/><Route path="/buscar" element={<Navigate to="/search" replace/>}/><Route path="/providers/:providerId" element={<ProviderPage/>}/><Route path="/providers/:providerId/products/:productId" element={<OfferDetailPage/>}/><Route path="/proveedor/:id" element={<ProviderPage/>}/><Route path="/requests" element={<RequestsPage/>}/><Route path="/requests/new" element={<NewRequestPage/>}/><Route path="/requests/:requestId" element={<RequestDetailPage/>}/><Route path="/requests/:requestId/chat" element={<ChatPage/>}/><Route path="/me" element={<MyProfileDashboardPage/>}/><Route path="/me/profile/edit" element={<EditPublicProfilePage/>}/><Route path="/me/products" element={<ManageOffersPage/>}/><Route path="/me/products/new" element={<OfferEditorPage/>}/><Route path="/me/products/:productId/edit" element={<OfferEditorPage/>}/><Route path="/formalization" element={<FormalizationPage/>}/><Route path="/trust" element={<TrustPage/>}/><Route path="/settings/security" element={<SecurityPage/>}/><Route path="/admin/reports" element={<AdminReportsPage/>}/><Route path="/serialization" element={<UnavailablePage/>}/><Route path="/dashboard/perfil" element={<Navigate to="/me" replace/>}/><Route path="/dashboard/cotizaciones" element={<Navigate to="/requests" replace/>}/><Route path="/dashboard/formalizacion" element={<Navigate to="/formalization" replace/>}/><Route path="*" element={<Navigate to="/" replace/>}/></Route></Routes></BrowserRouter>}
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        {/* Auth routes - no layout */}
+        <Route path="/auth/login" element={<LoginPage />} />
+        <Route path="/auth/register" element={<RegisterPage />} />
+
+        {/* All routes wrapped in single RootLayout */}
+        <Route element={<RootLayout />}>
+          {/* Public routes */}
+          <Route path="/" element={<HomePage />} />
+          <Route path="/search" element={<SearchPage />} />
+          <Route path="/buscar" element={<Navigate to="/search" replace />} />
+          <Route path="/providers/:providerId" element={<ProviderPage />} />
+          <Route path="/providers/:providerId/products/:productId" element={<OfferDetailPage />} />
+          <Route path="/proveedor/:id" element={<ProviderPage />} />
+          <Route path="/trust" element={<TrustPage />} />
+          <Route path="/serialization" element={<UnavailablePage />} />
+
+          {/* Protected: /requests and sub-routes */}
+          <Route
+            path="/requests"
+            element={
+              <ProtectedRoute>
+                <RequestsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/requests/new"
+            element={
+              <ProtectedRoute>
+                <NewRequestPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/requests/:requestId"
+            element={
+              <ProtectedRoute>
+                <RequestDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/requests/:requestId/chat"
+            element={
+              <ProtectedRoute>
+                <ChatPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Protected: /formalization */}
+          <Route
+            path="/formalization"
+            element={
+              <ProtectedRoute>
+                <FormalizationPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Protected: /me and sub-routes */}
+          <Route
+            path="/me"
+            element={
+              <ProtectedRoute>
+                <MyProfileDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/me/profile/edit"
+            element={
+              <ProtectedRoute>
+                <EditPublicProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/me/products"
+            element={
+              <ProtectedRoute>
+                <ManageOffersPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/me/products/new"
+            element={
+              <ProtectedRoute>
+                <OfferEditorPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/me/products/:productId/edit"
+            element={
+              <ProtectedRoute>
+                <OfferEditorPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Protected: /settings */}
+          <Route
+            path="/settings/security"
+            element={
+              <ProtectedRoute>
+                <SecurityPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Protected: /admin - ADMIN only */}
+          <Route
+            path="/admin/reports"
+            element={
+              <ProtectedRoute allowedRoles={["ADMIN"]}>
+                <AdminReportsPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Redirects */}
+          <Route path="/dashboard/perfil" element={<Navigate to="/me" replace />} />
+          <Route path="/dashboard/cotizaciones" element={<Navigate to="/requests" replace />} />
+          <Route path="/dashboard/formalizacion" element={<Navigate to="/formalization" replace />} />
+
+          {/* 404 */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}

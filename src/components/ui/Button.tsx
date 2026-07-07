@@ -1,17 +1,17 @@
-import { type ButtonHTMLAttributes, type ReactNode } from "react";
+import type * as React from "react";
 import { Loader2 } from "lucide-react";
 
 type ButtonVariant = "primary" | "secondary" | "danger" | "ghost";
 type ButtonSize = "sm" | "md" | "lg";
 
-interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
+type ButtonProps = React.ComponentPropsWithoutRef<"button"> & {
   variant?: ButtonVariant;
   size?: ButtonSize;
   loading?: boolean;
-  icon?: ReactNode;
+  icon?: React.ReactNode;
   fullWidth?: boolean;
-  children: ReactNode;
-}
+  children: React.ReactNode;
+};
 
 export function Button({
   variant = "primary",

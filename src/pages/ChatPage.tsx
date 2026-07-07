@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   AlertTriangle, ArrowLeft, BadgeCheck, Check, CheckCheck, ChevronDown,
-  Circle, Flag, HandCoins, Info, MessageCircle, Search, Send, ShieldCheck,
+  Circle, FileText, Flag, HandCoins, Info, MessageCircle, Search, Send, ShieldCheck,
   UserRound, X,
 } from "lucide-react";
 import { useAuthStore } from "../stores/auth-store";

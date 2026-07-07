@@ -363,7 +363,7 @@ export function RequestDetailPage() {
         <main>
           <section className="content-section">
             <h2>Necesidad compartida</h2>
-            <p>{thread.messages.find(m => m.authorRole === "client" || m.author === "client")?.body || "Sin descripción"}</p>
+            <p>{thread.messages.find(m => m.author === "client")?.text || "Sin descripción"}</p>
             {thread.quotedPriceLabel && (
               <div className="quote-detail">
                 <strong>{thread.quotedPriceLabel}</strong>

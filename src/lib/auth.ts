@@ -40,13 +40,13 @@ export async function verifyPassword(password: string, hash: string): Promise<bo
 export function generateAccessToken(payload: TokenPayload): string {
   const secret = process.env.JWT_SECRET;
   if (!secret) throw new Error("JWT_SECRET not configured");
-  return jwt.sign(payload, secret, { expiresIn: getAccessTokenExpiry() });
+  return jwt.sign(payload, secret, { expiresIn: getAccessTokenExpiry() as jwt.SignOptions["expiresIn"] });
 }
 
 export function generateRefreshToken(payload: TokenPayload): string {
   const secret = process.env.JWT_REFRESH_SECRET;
   if (!secret) throw new Error("JWT_REFRESH_SECRET not configured");
-  return jwt.sign(payload, secret, { expiresIn: getRefreshTokenExpiry() });
+  return jwt.sign(payload, secret, { expiresIn: getRefreshTokenExpiry() as jwt.SignOptions["expiresIn"] });
 }
 
 export function verifyAccessToken(token: string): TokenPayload | null {

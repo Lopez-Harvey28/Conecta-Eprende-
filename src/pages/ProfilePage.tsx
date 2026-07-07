@@ -200,7 +200,7 @@ export default function ProfilePage() {
                 <button 
                   onClick={handleSave}
                   disabled={saveMutation.isPending}
-                  className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-70 flex items-center gap-2"
+                  className="px-6 py-3 bg-[var(--brand)] hover:bg-[var(--brand-dark)] text-white font-bold rounded-xl transition-all shadow-md active:scale-95 disabled:opacity-70 flex items-center gap-2"
                 >
                   <Save className="w-4 h-4" />
                   {saveMutation.isPending ? "Guardando..." : "Guardar Cambios"}
@@ -219,7 +219,7 @@ export default function ProfilePage() {
           </div>
            <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
              <div className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Trust Score</div>
-             <div className="text-3xl font-extrabold text-blue-600">{provider?.score || 0}</div>
+             <div className="text-3xl font-extrabold text-[var(--brand)]">{provider?.score || 0}</div>
           </div>
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
              <div className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Formalización</div>

@@ -37,7 +37,7 @@ interface QuotesState {
   fetchThreadsByProvider: (providerId: string) => Promise<void>;
   fetchThreadsBySender: (senderId: string) => Promise<void>;
   getThread: (threadId: string) => Promise<QuoteThread | null>;
-  addMessage: (threadId: string, text: string, authorRole?: string) => Promise<void>;
+  addMessage: (threadId: string, text: string) => Promise<void>;
   updateThread: (threadId: string, data: Record<string, any>) => Promise<void>;
   createThread: (data: {
     providerId: string;
@@ -114,13 +114,13 @@ export const useQuotesStore = create<QuotesState>((set, get) => ({
     }
   },
 
-  addMessage: async (threadId, text, authorRole) => {
+  addMessage: async (threadId, text) => {
     try {
       const res = await fetch(`/api/quotes/${encodeURIComponent(threadId)}/messages`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, authorRole }),
+        body: JSON.stringify({ text }),
       });
       const data = await res.json();
 

@@ -150,6 +150,27 @@ async function startServer() {
     next();
   };
 
+  async function getProviderOwnedByUser(providerId: string, userId: string) {
+    return prisma.provider.findFirst({
+      where: { id: providerId, userId },
+      select: { id: true },
+    });
+  }
+
+  async function getThreadParticipantRole(threadId: string, userId: string) {
+    const thread = await prisma.quoteThread.findUnique({
+      where: { id: threadId },
+      include: {
+        provider: { select: { id: true, userId: true } },
+      },
+    });
+
+    if (!thread) return { thread: null, role: null as "client" | "provider" | null };
+    if (thread.senderId === userId) return { thread, role: "client" as const };
+    if (thread.provider.userId === userId) return { thread, role: "provider" as const };
+    return { thread, role: null as "client" | "provider" | null };
+  }
+
   // ──────────────────────────────────────────────────────────
   // AUTH ROUTES
   // ──────────────────────────────────────────────────────────
@@ -606,17 +627,25 @@ async function startServer() {
   // GET Quotes — optionally filtered by ?providerId= or ?senderId=
   // For MVP: returns threads by providerId (backward compatible)
   // After auth: use ?senderId= with auth middleware to get user's threads
-  app.get("/api/quotes", async (req, res) => {
+  app.get("/api/quotes", authenticate, async (req, res) => {
     try {
       const providerId = req.query.providerId as string | undefined;
       const senderId = req.query.senderId as string | undefined;
+      const { userId } = (req as any).user;
 
       if (senderId) {
+        if (senderId !== userId) {
+          return res.status(403).json({ success: false, error: "No tenés permiso para ver estas solicitudes" });
+        }
         const threads = await getThreadsBySender(senderId);
         return res.json({ success: true, data: threads });
       }
 
       if (providerId) {
+        const ownsProvider = await getProviderOwnedByUser(providerId, userId);
+        if (!ownsProvider) {
+          return res.status(403).json({ success: false, error: "No tenés permiso para ver solicitudes de este proveedor" });
+        }
         const threads = await getThreadsByProvider(providerId);
         return res.json({ success: true, data: threads });
       }
@@ -625,6 +654,27 @@ async function startServer() {
     } catch (error) {
       console.error("Get quotes error:", error);
       res.status(500).json({ success: false, error: "Error al obtener cotizaciones" });
+    }
+  });
+
+  app.get("/api/quotes/:id", authenticate, async (req, res) => {
+    try {
+      const threadId = req.params.id;
+      const { userId } = (req as any).user;
+      const { thread, role } = await getThreadParticipantRole(threadId, userId);
+
+      if (!thread) {
+        return res.status(404).json({ success: false, error: "Solicitud no encontrada" });
+      }
+      if (!role) {
+        return res.status(403).json({ success: false, error: "No participás en esta solicitud" });
+      }
+
+      const data = await getThreadById(threadId);
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error("Get quote error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener solicitud" });
     }
   });
 
@@ -645,7 +695,7 @@ async function startServer() {
   });
 
   // POST Request Quote — creates a new quote thread
-  app.post("/api/quotes", async (req, res) => {
+  app.post("/api/quotes", authenticate, async (req, res) => {
     try {
       const parsed = quoteRequestSchema.safeParse(req.body);
 
@@ -655,9 +705,39 @@ async function startServer() {
 
       const { providerId, subject, body, catalogItemId } = parsed.data;
 
+      const provider = await prisma.provider.findUnique({
+        where: { id: providerId },
+        select: { id: true, userId: true },
+      });
+
+      if (!provider) {
+        return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      }
+
+      if (provider.userId === (req as any).user.userId) {
+        return res.status(409).json({
+          success: false,
+          error: "No podés solicitar una cotización a tu propio perfil.",
+        });
+      }
+
+      if (catalogItemId) {
+        const catalogItem = await prisma.catalogItem.findFirst({
+          where: { id: catalogItemId, providerId },
+          select: { id: true },
+        });
+
+        if (!catalogItem) {
+          return res.status(400).json({
+            success: false,
+            error: "El producto seleccionado no pertenece a este proveedor.",
+          });
+        }
+      }
+
       // For authenticated requests, use the authenticated user as sender
       // For now, use a default senderId (will be replaced when auth is connected)
-      const senderId = (req as any).user?.userId || (req.body.senderId as string) || "anonymous";
+      const senderId = (req as any).user.userId;
 
       const newQuote = await createThread({
         senderId,
@@ -675,21 +755,28 @@ async function startServer() {
   });
 
   // POST Message to Quote Thread
-  app.post("/api/quotes/:id/messages", async (req, res) => {
+  app.post("/api/quotes/:id/messages", authenticate, async (req, res) => {
     try {
       const threadId = req.params.id;
-      const { text, authorRole } = req.body;
+      const { text } = req.body;
+      const { userId } = (req as any).user;
 
       if (!text) {
         return res.status(400).json({ success: false, error: "El mensaje es obligatorio" });
       }
 
-      // For authenticated requests, use the authenticated user
-      const authorId = (req as any).user?.userId || req.body.authorId || "anonymous";
-      const role = authorRole || ((req as any).user?.role === "PROVIDER" ? "provider" : "client");
+      const { thread, role } = await getThreadParticipantRole(threadId, userId);
+
+      if (!thread) {
+        return res.status(404).json({ success: false, error: "Solicitud no encontrada" });
+      }
+
+      if (!role) {
+        return res.status(403).json({ success: false, error: "No participás en esta solicitud" });
+      }
 
       const newMsg = await addMessage(threadId, {
-        authorId,
+        authorId: userId,
         authorRole: role,
         body: text,
       });
@@ -702,24 +789,58 @@ async function startServer() {
   });
 
   // PUT Update Quote Thread Status
-  app.put("/api/quotes/:id", async (req, res) => {
+  app.put("/api/quotes/:id", authenticate, async (req, res) => {
     try {
       const threadId = req.params.id;
-      const { status, quotedPriceLabel, quotedDeliveryTime } = req.body;
+      const {
+        status,
+        quotedPriceLabel,
+        quotedDeliveryTime,
+        confirmedByRequesterAt,
+        confirmedByProviderAt,
+      } = req.body;
+      const { userId } = (req as any).user;
 
-      const existing = await prisma.quoteThread.findUnique({
-        where: { id: threadId },
-        select: { id: true, status: true },
-      });
+      const { thread, role } = await getThreadParticipantRole(threadId, userId);
 
-      if (!existing) {
-        return res.status(404).json({ success: false, error: "Thread no encontrado" });
+      if (!thread) {
+        return res.status(404).json({ success: false, error: "Solicitud no encontrada" });
+      }
+
+      if (!role) {
+        return res.status(403).json({ success: false, error: "No participás en esta solicitud" });
+      }
+
+      if ((quotedPriceLabel !== undefined || quotedDeliveryTime !== undefined || status === "QUOTE_SENT") && role !== "provider") {
+        return res.status(403).json({ success: false, error: "Solo el proveedor puede enviar una cotización" });
+      }
+
+      if (confirmedByRequesterAt && role !== "client") {
+        return res.status(403).json({ success: false, error: "Solo el solicitante puede confirmar esta parte" });
+      }
+
+      if (confirmedByProviderAt && role !== "provider") {
+        return res.status(403).json({ success: false, error: "Solo el proveedor puede confirmar esta parte" });
+      }
+
+      if (status === "QUOTE_ACCEPTED" && role !== "client") {
+        return res.status(403).json({ success: false, error: "Solo el solicitante puede aceptar la cotización" });
+      }
+
+      if (status === "CLOSED_PROVIDER" && role !== "provider") {
+        return res.status(403).json({ success: false, error: "Solo el proveedor puede cerrar su parte" });
+      }
+
+      if (status === "CLOSED_REQUESTER" && role !== "client") {
+        return res.status(403).json({ success: false, error: "Solo el solicitante puede cerrar su parte" });
       }
 
       const updated = await updateThread(threadId, {
         status,
         quotedPriceLabel,
         quotedDeliveryTime,
+        confirmedByRequesterAt: Boolean(confirmedByRequesterAt),
+        confirmedByProviderAt: Boolean(confirmedByProviderAt),
       });
 
       res.json({ success: true, data: updated });

@@ -66,9 +66,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     if (!isAuthenticated || !user) return;
-    if (user.role === "PROVIDER" && user.providers?.[0]?.id) {
-      fetchThreadsByProvider(user.providers[0].id);
-    } else if (user.role === "USER") {
+    const providerId = user.providers?.[0]?.id || user.providerProfileId;
+    if (providerId) {
+      fetchThreadsByProvider(providerId);
+    } else {
       fetchThreadsBySender(user.id);
     }
   }, [isAuthenticated, user, fetchThreadsByProvider, fetchThreadsBySender]);
@@ -108,7 +109,7 @@ export default function RootLayout() {
         <div className="account-wrap">
           {isAuthenticated && user ? (
             <>
-              <button className="account-button" onClick={() => setAccount(!account)}>
+              <button className="account-button" onClick={() => setAccount(!account)} aria-expanded={account} aria-haspopup="menu">
                 <span>{initials}</span>
                 <span className="account-copy">
                   <strong>{displayName}</strong>
@@ -117,7 +118,7 @@ export default function RootLayout() {
                 <ChevronDown />
               </button>
               {account && (
-                <div className="account-menu">
+                <div className="account-menu" role="menu">
                   <Link to="/settings/security" onClick={() => setAccount(false)}>
                     <Settings /> Configuración y seguridad
                   </Link>

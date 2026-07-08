@@ -305,6 +305,7 @@ export function RequestDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           providerId: thread.providerId,
+          requestId: thread.id,
           qualityScore: score,
           responseTimeScore: score,
           fulfillmentScore: score,

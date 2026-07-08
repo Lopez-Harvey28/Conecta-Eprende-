@@ -1,5 +1,16 @@
 import { prisma } from "./db";
 
+function mapCatalogItem(item: any) {
+  return {
+    ...item,
+    city: item.cityRef?.name ?? item.city,
+    category: item.categoryLinks?.find((link: any) => !link.isPrimary)?.category?.name ?? item.category,
+    subcategory: item.categoryLinks?.find((link: any) => link.isPrimary)?.category?.name ?? item.subcategory,
+    viewCount: item.metrics?.viewCount ?? item.viewCount,
+    inquiryCount: item.metrics?.inquiryCount ?? item.inquiryCount,
+  };
+}
+
 export async function searchCatalogItems(params: {
   q?: string;
   city?: string;
@@ -40,14 +51,18 @@ export async function searchCatalogItems(params: {
           slug: true,
           verified: true,
           trustScore: { select: { finalScore: true } },
+          metrics: { select: { trustScore: true } },
         },
       },
+      cityRef: { include: { department: true } },
+      categoryLinks: { include: { category: true } },
       equipmentDetail: true,
+      metrics: true,
     },
     orderBy: { createdAt: "desc" },
   });
 
-  return items;
+  return items.map(mapCatalogItem);
 }
 
 export async function getCatalogByProvider(providerId: string): Promise<any[]> {
@@ -56,9 +71,12 @@ export async function getCatalogByProvider(providerId: string): Promise<any[]> {
     include: {
       equipmentDetail: true,
       photos: true,
+      cityRef: { include: { department: true } },
+      categoryLinks: { include: { category: true } },
+      metrics: true,
     },
     orderBy: { createdAt: "desc" },
-  });
+  }).then((items) => items.map(mapCatalogItem));
 }
 
 export async function getCatalogItem(id: string): Promise<any | null> {
@@ -71,14 +89,19 @@ export async function getCatalogItem(id: string): Promise<any | null> {
           displayName: true,
           slug: true,
           city: true,
+          cityRef: true,
           verified: true,
           trustScore: { select: { finalScore: true } },
+          metrics: { select: { trustScore: true } },
         },
       },
       equipmentDetail: true,
       photos: true,
+      cityRef: { include: { department: true } },
+      categoryLinks: { include: { category: true } },
+      metrics: true,
     },
-  });
+  }).then((item) => item ? mapCatalogItem(item) : null);
 }
 
 export async function createCatalogItem(data: {

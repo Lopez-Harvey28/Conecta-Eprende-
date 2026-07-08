@@ -2,7 +2,7 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import {
   Availability,
-  City,
+  LegacyCity,
   FormalizationStatus,
   PrismaClient,
   Role,
@@ -12,6 +12,28 @@ const prisma = new PrismaClient();
 
 const PASSWORD = "Conecta123!";
 const now = new Date("2026-07-07T12:00:00.000Z");
+
+function slugify(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+const locationSeeds = [
+  { department: "Managua", city: "Managua", legacyCode: LegacyCity.MANAGUA },
+  { department: "León", city: "León", legacyCode: LegacyCity.LEON },
+  { department: "Granada", city: "Granada", legacyCode: LegacyCity.GRANADA },
+  { department: "Masaya", city: "Masaya", legacyCode: LegacyCity.MASAYA },
+  { department: "Estelí", city: "Estelí", legacyCode: LegacyCity.ESTELI },
+  { department: "Matagalpa", city: "Matagalpa", legacyCode: LegacyCity.MATAGALPA },
+  { department: "RACCS", city: "Bluefields", legacyCode: LegacyCity.BLUEFIELDS },
+  { department: "Chontales", city: "Juigalpa", legacyCode: LegacyCity.JUIGALPA },
+  { department: "León", city: "Nagarote", legacyCode: LegacyCity.NAGAROTE },
+  { department: "Masaya", city: "San Juan de Oriente", legacyCode: LegacyCity.SAN_JUAN_DE_ORIENTE },
+] as const;
 
 const users = [
   { id: "seed_user_requester", email: "requester@conecta.test", name: "Andrea Requester", role: Role.USER },
@@ -31,7 +53,7 @@ const providerSeeds = [
     userId: "seed_user_provider_textil",
     displayName: "Taller Creativo Masaya",
     slug: "taller-creativo-masaya",
-    city: City.MASAYA,
+    city: LegacyCity.MASAYA,
     category: "Bordado y serigrafía",
     mainCategory: "Textil personalizado",
     shortDescription: "Bordado, camisetas y uniformes para pequeños negocios.",
@@ -58,7 +80,7 @@ const providerSeeds = [
     userId: "seed_user_provider_empaques",
     displayName: "Empaques Verdes Granada",
     slug: "empaques-verdes-granada",
-    city: City.GRANADA,
+    city: LegacyCity.GRANADA,
     category: "Empaques ecológicos",
     mainCategory: "Empaques biodegradables",
     shortDescription: "Cajas, etiquetas y bolsas sostenibles para marcas locales.",
@@ -85,7 +107,7 @@ const providerSeeds = [
     userId: "seed_user_provider_tech",
     displayName: "Nexo Digital Managua",
     slug: "nexo-digital-managua",
-    city: City.MANAGUA,
+    city: LegacyCity.MANAGUA,
     category: "Servicios tecnológicos",
     mainCategory: "Automatización y sitios web",
     shortDescription: "Sitios web, automatización y soporte para emprendimientos.",
@@ -112,7 +134,7 @@ const providerSeeds = [
     userId: "seed_user_provider_cafe",
     displayName: "Finca Café Segovia",
     slug: "finca-cafe-segovia",
-    city: City.ESTELI,
+    city: LegacyCity.ESTELI,
     category: "Café y alimentos",
     mainCategory: "Café tostado local",
     shortDescription: "Café tostado, molido y paquetes para cafeterías pequeñas.",
@@ -139,7 +161,7 @@ const providerSeeds = [
     userId: "seed_user_provider_equipo",
     displayName: "Equipos Productivos León",
     slug: "equipos-productivos-leon",
-    city: City.LEON,
+    city: LegacyCity.LEON,
     category: "Insumos agrícolas",
     mainCategory: "Alquiler y reparación de equipos",
     shortDescription: "Alquiler, reparación y capacitación para equipos productivos.",
@@ -166,7 +188,7 @@ const providerSeeds = [
     userId: "seed_user_provider_marketing",
     displayName: "Impulso Marketing Matagalpa",
     slug: "impulso-marketing-matagalpa",
-    city: City.MATAGALPA,
+    city: LegacyCity.MATAGALPA,
     category: "Marketing digital",
     mainCategory: "Contenido y campañas",
     shortDescription: "Campañas digitales, fotografía de producto y contenido local.",
@@ -229,17 +251,85 @@ const threadSeeds = [
 async function main() {
   const password = await bcrypt.hash(PASSWORD, 12);
 
+  await prisma.quoteOffer.deleteMany({ where: { requestId: { startsWith: "seed_" } } });
   await prisma.quoteMessage.deleteMany({ where: { threadId: { startsWith: "seed_" } } });
-  await prisma.quoteThread.deleteMany({ where: { id: { startsWith: "seed_" } } });
+  await prisma.reviewAnalysis.deleteMany({ where: { reviewId: { startsWith: "seed_" } } });
   await prisma.review.deleteMany({ where: { id: { startsWith: "seed_" } } });
+  await prisma.quoteThread.deleteMany({ where: { id: { startsWith: "seed_" } } });
+  await prisma.catalogItemMetrics.deleteMany({ where: { catalogItemId: { startsWith: "seed_" } } });
+  await prisma.catalogItemCategory.deleteMany({ where: { catalogItemId: { startsWith: "seed_" } } });
   await prisma.catalogItemPhoto.deleteMany({ where: { catalogItemId: { startsWith: "seed_" } } });
   await prisma.equipmentDetail.deleteMany({ where: { catalogItemId: { startsWith: "seed_" } } });
   await prisma.catalogItem.deleteMany({ where: { id: { startsWith: "seed_" } } });
+  await prisma.providerCategory.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
+  await prisma.providerBusinessHour.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
+  await prisma.providerDeliveryOption.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
+  await prisma.providerMetrics.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
+  await prisma.trustScoreSnapshot.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
+  await prisma.riskReport.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
+  await prisma.formalizationStep.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
   await prisma.providerPhoto.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
   await prisma.providerMedal.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
   await prisma.formalizationChecklist.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
   await prisma.trustScore.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
   await prisma.provider.deleteMany({ where: { id: { startsWith: "seed_" } } });
+
+  const cityIdByLegacy = new Map<LegacyCity, string>();
+  const categoryIdBySlug = new Map<string, string>();
+
+  for (const location of locationSeeds) {
+    const department = await prisma.department.upsert({
+      where: { slug: slugify(location.department) },
+      update: { name: location.department },
+      create: {
+        id: `seed_department_${slugify(location.department)}`,
+        name: location.department,
+        slug: slugify(location.department),
+      },
+    });
+
+    const city = await prisma.city.upsert({
+      where: { slug: slugify(location.city) },
+      update: {
+        name: location.city,
+        departmentId: department.id,
+        legacyCode: location.legacyCode,
+      },
+      create: {
+        id: `seed_city_${slugify(location.city)}`,
+        name: location.city,
+        slug: slugify(location.city),
+        legacyCode: location.legacyCode,
+        departmentId: department.id,
+      },
+    });
+
+    cityIdByLegacy.set(location.legacyCode, city.id);
+  }
+
+  async function ensureCategory(name: string, parentCategoryId?: string | null) {
+    const slug = slugify(name);
+    const category = await prisma.category.upsert({
+      where: { slug },
+      update: { name, parentCategoryId: parentCategoryId ?? null },
+      create: {
+        id: `seed_category_${slug}`,
+        name,
+        slug,
+        parentCategoryId: parentCategoryId ?? null,
+      },
+    });
+    categoryIdBySlug.set(slug, category.id);
+    return category;
+  }
+
+  for (const provider of providerSeeds) {
+    const rootCategory = await ensureCategory(provider.category);
+    await ensureCategory(provider.mainCategory, rootCategory.id);
+    for (const item of provider.catalog) {
+      await ensureCategory(item.subcategory, rootCategory.id);
+    }
+  }
 
   for (const user of users) {
     await prisma.user.upsert({
@@ -250,6 +340,10 @@ async function main() {
   }
 
   for (const provider of providerSeeds) {
+    const cityId = cityIdByLegacy.get(provider.city);
+    const rootCategoryId = categoryIdBySlug.get(slugify(provider.category));
+    const mainCategoryId = categoryIdBySlug.get(slugify(provider.mainCategory));
+
     await prisma.provider.create({
       data: {
         id: provider.id,
@@ -257,6 +351,8 @@ async function main() {
         displayName: provider.displayName,
         slug: provider.slug,
         city: provider.city,
+        cityId,
+        department: locationSeeds.find(location => location.legacyCode === provider.city)?.department,
         category: provider.category,
         mainCategory: provider.mainCategory,
         shortDescription: provider.shortDescription,
@@ -272,6 +368,39 @@ async function main() {
         lat: provider.lat,
         lng: provider.lng,
         coverImageUrl: provider.image,
+        categoryLinks: {
+          create: [
+            ...(rootCategoryId ? [{ categoryId: rootCategoryId, isPrimary: false }] : []),
+            ...(mainCategoryId ? [{ categoryId: mainCategoryId, isPrimary: true }] : []),
+          ],
+        },
+        businessHourRows: {
+          create: [1, 2, 3, 4, 5].map(dayOfWeek => ({
+            dayOfWeek,
+            opensAt: "08:00",
+            closesAt: "17:00",
+            isClosed: false,
+          })),
+        },
+        deliveryOptionRows: {
+          create: [
+            { label: "Retiro en local", details: "Disponible coordinando por chat de solicitud." },
+            { label: "Entrega local", details: "Sujeta a ciudad, volumen y disponibilidad." },
+          ],
+        },
+        metrics: {
+          create: {
+            avgRating: provider.trust >= 80 ? 4.8 : provider.trust >= 60 ? 4.2 : 3.6,
+            totalVerifiedReviews: Math.max(1, Math.floor(provider.completedRequests / 2)),
+            profileCompleteness: provider.trust >= 80 ? 100 : 76,
+            responseTimeHrs: provider.responseTimeHrs,
+            completedRequests: provider.completedRequests,
+            requestsResponded: provider.completedRequests + 3,
+            suspiciousActivityPenalty: provider.trust < 55 ? 25 : 0,
+            trustScore: provider.trust,
+            calculatedAt: now,
+          },
+        },
         photos: {
           create: [
             { imageUrl: provider.image, photoType: "PORTAFOLIO", isFeatured: true },
@@ -298,6 +427,55 @@ async function main() {
             },
           },
         },
+        trustScoreSnapshots: {
+          create: {
+            profileCompleteScore: provider.trust >= 80 ? 100 : 76,
+            contactVerifiedScore: provider.verified ? 100 : 60,
+            requestsRespondedScore: Math.min((provider.completedRequests + 3) * 5, 100),
+            requestsCompletedScore: Math.min(provider.completedRequests * 5, 100),
+            avgReviewScore: provider.trust,
+            responseTimeScore: Math.max(20, 100 - provider.responseTimeHrs * 4),
+            accountAgeFactor: 1,
+            suspiciousActivityPenalty: provider.trust < 55 ? 25 : 0,
+            finalScore: provider.trust,
+            algorithmVersion: "v1-seeded-normalized",
+            calculatedAt: now,
+          },
+        },
+        riskReports: provider.trust < 55 ? {
+          create: {
+            riskScore: 58,
+            suspiciousCyclesCount: 1,
+            avgSearchTimeSeconds: 18,
+            avgRequestToCompletionMinutes: 42,
+            avgMessagesPerRequest: 2,
+            newAccountsPercentage: 0.4,
+            ratingConcentrationScore: 0.7,
+            status: "OPEN",
+            recommendedAction: "Revision manual de senales agregadas; no exponer datos privados.",
+            generatedAt: now,
+          },
+        } : undefined,
+        formalizationSteps: {
+          create: [
+            {
+              code: "profile-basics",
+              title: "Completar perfil publico",
+              description: "Roadmap interno para mantener datos minimos del proveedor.",
+              sortOrder: 1,
+              isRequired: true,
+              status: "ROADMAP",
+            },
+            {
+              code: "business-records",
+              title: "Ordenar informacion del negocio",
+              description: "Soporte educativo; no valida documentos legales en este MVP.",
+              sortOrder: 2,
+              isRequired: false,
+              status: "ROADMAP",
+            },
+          ],
+        },
         checklistState: {
           create: {
             steps: [
@@ -311,6 +489,8 @@ async function main() {
     });
 
     for (const item of provider.catalog) {
+      const itemCategoryId = categoryIdBySlug.get(slugify(item.subcategory)) ?? rootCategoryId;
+
       await prisma.catalogItem.create({
         data: {
           id: item.id,
@@ -324,12 +504,24 @@ async function main() {
           priceMax: item.priceMax,
           priceUnit: item.priceUnit,
           city: provider.city,
+          cityId,
           availabilityStatus: provider.availability,
           deliveryAvailable: true,
           pickupAvailable: true,
           mainImageUrl: provider.image,
           viewCount: 20 + provider.completedRequests,
           inquiryCount: Math.max(2, Math.floor(provider.completedRequests / 2)),
+          categoryLinks: itemCategoryId ? {
+            create: [{ categoryId: itemCategoryId, isPrimary: true }],
+          } : undefined,
+          metrics: {
+            create: {
+              viewCount: 20 + provider.completedRequests,
+              inquiryCount: Math.max(2, Math.floor(provider.completedRequests / 2)),
+              requestCount: Math.max(1, Math.floor(provider.completedRequests / 3)),
+              calculatedAt: now,
+            },
+          },
           equipmentDetail: "equipment" in item && item.equipment ? {
             create: {
               modality: "ALQUILER",
@@ -368,6 +560,15 @@ async function main() {
         confirmedByRequesterAt: completedAt,
         confirmedByProviderAt: completedAt,
         completedAt,
+        quoteOffers: thread.quotedPriceLabel ? {
+          create: {
+            providerId: thread.providerId,
+            priceLabel: thread.quotedPriceLabel,
+            deliveryTimeLabel: thread.quotedDeliveryTime,
+            notes: "Oferta seed vinculada a una solicitud/conversacion.",
+            status: thread.completed ? "ACCEPTED" : "SENT",
+          },
+        } : undefined,
         messages: {
           create: [
             {
@@ -390,7 +591,7 @@ async function main() {
     });
   }
 
-  await prisma.review.create({
+  const completedReview = await prisma.review.create({
     data: {
       id: "seed_review_textil_completed",
       providerId: "seed_provider_textil",
@@ -405,6 +606,18 @@ async function main() {
       comment: "Trabajo confirmado dentro de la plataforma. Buena comunicación y entrega según lo acordado.",
       sentiment: 0.9,
       createdAt: new Date("2026-07-03T10:00:00.000Z"),
+    },
+  });
+
+  await prisma.reviewAnalysis.create({
+    data: {
+      reviewId: completedReview.id,
+      sentimentScore: 0.9,
+      qualitySignals: { verifiedRequest: true, bilateralCompletion: true },
+      moderationFlags: { suspicious: false },
+      generalScore: 4.8,
+      algorithmVersion: "v1-seeded-normalized",
+      calculatedAt: new Date("2026-07-03T10:05:00.000Z"),
     },
   });
 

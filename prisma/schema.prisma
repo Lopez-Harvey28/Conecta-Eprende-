@@ -17,7 +17,7 @@ enum Role {
   ADMIN
 }
 
-enum City {
+enum LegacyCity {
   MANAGUA
   LEON
   GRANADA
@@ -28,6 +28,8 @@ enum City {
   JUIGALPA
   NAGAROTE
   SAN_JUAN_DE_ORIENTE
+
+  @@map("LegacyCity")
 }
 
 enum FormalizationStatus {
@@ -67,6 +69,7 @@ model User {
 
   sentQuotes               QuoteThread[]      @relation("Sender")
   reviews                  Review[]           @relation("Reviewer")
+  reviewedRiskReports      RiskReport[]       @relation("RiskReportReviewer")
 
   providers                Provider[]
 }
@@ -136,6 +139,50 @@ model PasswordResetToken {
 }
 
 // ──────────────────────────────────────────────────────────
+// Normalized reference data
+// ──────────────────────────────────────────────────────────
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  slug      String   @unique
+  cities    City[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model City {
+  id           String       @id @default(cuid())
+  departmentId String
+  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  name         String
+  slug         String       @unique
+  legacyCode   LegacyCity?  @unique
+  providers    Provider[]   @relation("ProviderCity")
+  catalogItems CatalogItem[] @relation("CatalogItemCity")
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@unique([departmentId, name])
+  @@index([departmentId])
+}
+
+model Category {
+  id                String                @id @default(cuid())
+  name              String
+  slug              String                @unique
+  parentCategoryId  String?
+  parentCategory    Category?             @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
+  childCategories   Category[]            @relation("CategoryHierarchy")
+  providerLinks     ProviderCategory[]
+  catalogItemLinks  CatalogItemCategory[]
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+
+  @@index([parentCategoryId])
+}
+
+// ──────────────────────────────────────────────────────────
 // Provider (un usuario puede tener múltiples negocios)
 // ──────────────────────────────────────────────────────────
 
@@ -150,7 +197,9 @@ model Provider {
   logoUrl             String?
   coverImageUrl       String?
 
-  city                City
+  city                LegacyCity
+  cityId              String?
+  cityRef             City?               @relation("ProviderCity", fields: [cityId], references: [id], onDelete: SetNull)
   department          String?
   serviceRadius       String?
 
@@ -185,19 +234,67 @@ model Provider {
   updatedAt           DateTime            @updatedAt
 
   trustScore          TrustScore?
+  metrics             ProviderMetrics?
   reviews             Review[]            @relation("Reviewee")
   quoteThreads        QuoteThread[]        @relation("Provider")
   checklistState      FormalizationChecklist?
+  formalizationSteps  FormalizationStep[]
+  businessHourRows    ProviderBusinessHour[]
+  deliveryOptionRows  ProviderDeliveryOption[]
   photos              ProviderPhoto[]
   catalogItems        CatalogItem[]
   medals              ProviderMedal[]
+  categoryLinks       ProviderCategory[]
+  trustScoreSnapshots TrustScoreSnapshot[]
+  riskReports         RiskReport[]
 
   @@index([city])
+  @@index([cityId])
   @@index([category])
   @@index([mainCategory])
   @@index([availability])
   @@index([userId])
   @@index([slug])
+}
+
+model ProviderCategory {
+  providerId String
+  categoryId String
+  isPrimary  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([providerId, categoryId])
+  @@index([categoryId])
+  @@index([isPrimary])
+}
+
+model ProviderBusinessHour {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  dayOfWeek  Int
+  opensAt    String?
+  closesAt   String?
+  isClosed   Boolean  @default(false)
+  note       String?
+
+  @@index([providerId])
+  @@unique([providerId, dayOfWeek])
+}
+
+model ProviderDeliveryOption {
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  label      String
+  details    String?
+  createdAt  DateTime @default(now())
+
+  @@index([providerId])
+  @@unique([providerId, label])
 }
 
 model ProviderPhoto {
@@ -250,6 +347,25 @@ model TrustScore {
   @@index([finalScore])
 }
 
+model ProviderMetrics {
+  id                         String   @id @default(cuid())
+  providerId                 String   @unique
+  provider                   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  avgRating                  Float?
+  totalVerifiedReviews       Int      @default(0)
+  profileCompleteness        Float    @default(0)
+  responseTimeHrs            Float?
+  completedRequests          Int      @default(0)
+  requestsResponded          Int      @default(0)
+  suspiciousActivityPenalty  Float    @default(0)
+  trustScore                 Float    @default(0)
+  calculatedAt               DateTime @default(now())
+  updatedAt                  DateTime @updatedAt
+
+  @@index([trustScore])
+  @@index([avgRating])
+}
+
 model Review {
   id                 String   @id @default(cuid())
   providerId         String
@@ -257,6 +373,7 @@ model Review {
   reviewerId         String
   reviewer           User     @relation("Reviewer", fields: [reviewerId], references: [id])
   requestId          String?
+  request            QuoteThread? @relation("RequestReviews", fields: [requestId], references: [id], onDelete: SetNull)
 
   qualityScore       Int
   responseTimeScore  Int
@@ -267,11 +384,69 @@ model Review {
 
   comment            String?  @db.Text
   sentiment          Float?
+  analysis           ReviewAnalysis?
   createdAt          DateTime @default(now())
 
   @@index([providerId])
   @@index([reviewerId])
   @@index([requestId])
+  @@unique([requestId, providerId, reviewerId])
+}
+
+model ReviewAnalysis {
+  id                  String   @id @default(cuid())
+  reviewId            String   @unique
+  review              Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  sentimentScore      Float?
+  qualitySignals      Json?
+  moderationFlags     Json?
+  generalScore        Float?
+  algorithmVersion    String   @default("v1-seeded")
+  calculatedAt        DateTime @default(now())
+}
+
+model TrustScoreSnapshot {
+  id                         String   @id @default(cuid())
+  providerId                 String
+  provider                   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  profileCompleteScore       Float
+  contactVerifiedScore       Float
+  requestsRespondedScore     Float
+  requestsCompletedScore     Float
+  avgReviewScore             Float
+  responseTimeScore          Float
+  accountAgeFactor           Float
+  suspiciousActivityPenalty  Float
+  finalScore                 Float
+  algorithmVersion           String   @default("v1-rule-based")
+  calculatedAt               DateTime @default(now())
+
+  @@index([providerId])
+  @@index([calculatedAt])
+  @@index([finalScore])
+}
+
+model RiskReport {
+  id                              String    @id @default(cuid())
+  providerId                      String
+  provider                        Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  riskScore                       Float
+  suspiciousCyclesCount           Int       @default(0)
+  avgSearchTimeSeconds            Float?
+  avgRequestToCompletionMinutes   Float?
+  avgMessagesPerRequest           Float?
+  newAccountsPercentage           Float?
+  ratingConcentrationScore        Float?
+  status                          String    @default("OPEN")
+  recommendedAction               String?
+  generatedAt                     DateTime  @default(now())
+  reviewedAt                      DateTime?
+  reviewedByUserId                String?
+  reviewedBy                      User?     @relation("RiskReportReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([providerId])
+  @@index([status])
+  @@index([reviewedByUserId])
 }
 
 // ──────────────────────────────────────────────────────────
@@ -294,6 +469,8 @@ model CatalogItem {
   priceUnit          String?       // "unidad", "día", "proyecto", "mes"
 
   city               String
+  cityId             String?
+  cityRef            City?         @relation("CatalogItemCity", fields: [cityId], references: [id], onDelete: SetNull)
   availabilityStatus Availability @default(DISPONIBLE)
   deliveryAvailable  Boolean       @default(false)
   pickupAvailable    Boolean       @default(false)
@@ -307,10 +484,38 @@ model CatalogItem {
 
   equipmentDetail    EquipmentDetail?
   photos             CatalogItemPhoto[]
+  categoryLinks      CatalogItemCategory[]
+  metrics            CatalogItemMetrics?
 
   @@index([providerId])
+  @@index([cityId])
   @@index([category])
   @@index([itemType])
+}
+
+model CatalogItemCategory {
+  catalogItemId String
+  categoryId    String
+  isPrimary     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  category      Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@id([catalogItemId, categoryId])
+  @@index([categoryId])
+  @@index([isPrimary])
+}
+
+model CatalogItemMetrics {
+  id             String      @id @default(cuid())
+  catalogItemId  String      @unique
+  catalogItem    CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  viewCount      Int         @default(0)
+  inquiryCount   Int         @default(0)
+  requestCount   Int         @default(0)
+  calculatedAt   DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
 }
 
 model EquipmentDetail {
@@ -367,9 +572,30 @@ model QuoteThread {
   completedAt         DateTime?
 
   messages      QuoteMessage[]
+  quoteOffers   QuoteOffer[]
+  reviews       Review[]       @relation("RequestReviews")
   createdAt     DateTime       @default(now())
 
   @@index([senderId])
+  @@index([providerId])
+  @@index([status])
+}
+
+model QuoteOffer {
+  id                 String      @id @default(cuid())
+  requestId          String
+  request            QuoteThread @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  providerId         String
+  amount             Int?
+  currency           String      @default("NIO")
+  priceLabel         String?
+  deliveryTimeLabel  String?
+  notes              String?     @db.Text
+  status             String      @default("DRAFT")
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+
+  @@index([requestId])
   @@index([providerId])
   @@index([status])
 }
@@ -398,4 +624,22 @@ model FormalizationChecklist {
   provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   steps      Json     // [{id, title, description, status: "completed" | "current" | "pending"}]
   updatedAt  DateTime @updatedAt
+}
+
+model FormalizationStep {
+  id          String    @id @default(cuid())
+  providerId  String?
+  provider    Provider? @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  code        String
+  title       String
+  description String?   @db.Text
+  sortOrder   Int       @default(0)
+  isRequired  Boolean   @default(false)
+  status      String    @default("ROADMAP")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([providerId, code])
+  @@index([providerId])
+  @@index([sortOrder])
 }

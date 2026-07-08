@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import cookieParser from "cookie-parser";
-import { Availability, City, FormalizationStatus } from "@prisma/client";
+import { Availability, LegacyCity, FormalizationStatus } from "@prisma/client";
 import { extractIntent } from "./src/lib/ai/extract-intent";
 import { generateQuoteDraft } from "./src/lib/ai/quote-draft";
 import { generateEnhancedBio } from "./src/lib/ai/enhance-bio";
@@ -50,26 +50,26 @@ import {
   updateThread,
 } from "./src/lib/quotes-service";
 
-const cityToEnum: Record<string, City> = {
-  "managua": City.MANAGUA,
-  "leon": City.LEON,
-  "león": City.LEON,
-  "granada": City.GRANADA,
-  "masaya": City.MASAYA,
-  "esteli": City.ESTELI,
-  "estelí": City.ESTELI,
-  "matagalpa": City.MATAGALPA,
-  "bluefields": City.BLUEFIELDS,
-  "juigalpa": City.JUIGALPA,
-  "nagarote": City.NAGAROTE,
-  "san juan de oriente": City.SAN_JUAN_DE_ORIENTE,
+const cityToEnum: Record<string, LegacyCity> = {
+  "managua": LegacyCity.MANAGUA,
+  "leon": LegacyCity.LEON,
+  "león": LegacyCity.LEON,
+  "granada": LegacyCity.GRANADA,
+  "masaya": LegacyCity.MASAYA,
+  "esteli": LegacyCity.ESTELI,
+  "estelí": LegacyCity.ESTELI,
+  "matagalpa": LegacyCity.MATAGALPA,
+  "bluefields": LegacyCity.BLUEFIELDS,
+  "juigalpa": LegacyCity.JUIGALPA,
+  "nagarote": LegacyCity.NAGAROTE,
+  "san juan de oriente": LegacyCity.SAN_JUAN_DE_ORIENTE,
 };
 
-function normalizeCity(value: unknown): City | undefined {
+function normalizeCity(value: unknown): LegacyCity | undefined {
   if (typeof value !== "string" || !value.trim()) return undefined;
   const raw = value.trim();
   const enumValue = cityToEnum[raw.toLowerCase()] ?? raw.toUpperCase().replace(/\s+/g, "_");
-  return Object.values(City).includes(enumValue as City) ? enumValue as City : undefined;
+  return Object.values(LegacyCity).includes(enumValue as LegacyCity) ? enumValue as LegacyCity : undefined;
 }
 
 function normalizeAvailability(value: unknown): Availability {
@@ -88,6 +88,44 @@ function slugifyProviderName(value: string) {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 56) || "proveedor";
+}
+
+const cityMetadata: Record<LegacyCity, { city: string; department: string }> = {
+  [LegacyCity.MANAGUA]: { city: "Managua", department: "Managua" },
+  [LegacyCity.LEON]: { city: "Leon", department: "Leon" },
+  [LegacyCity.GRANADA]: { city: "Granada", department: "Granada" },
+  [LegacyCity.MASAYA]: { city: "Masaya", department: "Masaya" },
+  [LegacyCity.ESTELI]: { city: "Esteli", department: "Esteli" },
+  [LegacyCity.MATAGALPA]: { city: "Matagalpa", department: "Matagalpa" },
+  [LegacyCity.BLUEFIELDS]: { city: "Bluefields", department: "RACCS" },
+  [LegacyCity.JUIGALPA]: { city: "Juigalpa", department: "Chontales" },
+  [LegacyCity.NAGAROTE]: { city: "Nagarote", department: "Leon" },
+  [LegacyCity.SAN_JUAN_DE_ORIENTE]: { city: "San Juan de Oriente", department: "Masaya" },
+};
+
+async function ensureCityReference(legacyCode: LegacyCity) {
+  const meta = cityMetadata[legacyCode];
+  const departmentSlug = slugifyProviderName(meta.department);
+  const citySlug = slugifyProviderName(meta.city);
+  const department = await prisma.department.upsert({
+    where: { slug: departmentSlug },
+    update: { name: meta.department },
+    create: { name: meta.department, slug: departmentSlug },
+  });
+  return prisma.city.upsert({
+    where: { slug: citySlug },
+    update: { name: meta.city, departmentId: department.id, legacyCode },
+    create: { name: meta.city, slug: citySlug, departmentId: department.id, legacyCode },
+  });
+}
+
+async function ensureCategoryReference(name: string, parentCategoryId?: string | null) {
+  const slug = slugifyProviderName(name);
+  return prisma.category.upsert({
+    where: { slug },
+    update: { name, parentCategoryId: parentCategoryId ?? null },
+    create: { name, slug, parentCategoryId: parentCategoryId ?? null },
+  });
 }
 
 async function startServer() {
@@ -729,6 +767,13 @@ async function startServer() {
         slug = `${baseSlug}-${suffix++}`;
       }
 
+      const legacyCity = normalizeCity(req.body.city) || LegacyCity.MANAGUA;
+      const cityRef = await ensureCityReference(legacyCity);
+      const mainCategory = String(req.body.mainCategory || category).trim();
+      const rootCategory = await ensureCategoryReference(category);
+      const primaryCategory = await ensureCategoryReference(mainCategory, rootCategory.id);
+      const responseTimeHrs = Math.max(1, Number(req.body.responseTimeHrs) || 1);
+
       const provider = await prisma.provider.create({
         data: {
           userId,
@@ -738,14 +783,31 @@ async function startServer() {
           aboutDescription,
           logoUrl: String(req.body.logoUrl || "").trim() || null,
           coverImageUrl: String(req.body.coverImageUrl || "").trim() || null,
-          city: normalizeCity(req.body.city) || City.MANAGUA,
+          city: legacyCity,
+          cityId: cityRef.id,
+          department: cityRef.departmentId ? cityMetadata[legacyCity].department : null,
           serviceRadius: String(req.body.serviceRadius || "").trim() || null,
           category,
-          mainCategory: String(req.body.mainCategory || category).trim(),
+          mainCategory,
+          categoryLinks: {
+            create: [
+              { categoryId: rootCategory.id, isPrimary: false },
+              ...(primaryCategory.id !== rootCategory.id ? [{ categoryId: primaryCategory.id, isPrimary: true }] : []),
+            ],
+          },
           priceRange: String(req.body.priceRange || "").trim() || null,
           availability: normalizeAvailability(req.body.availability),
           formalizationStatus: normalizeFormalizationStatus(req.body.formalizationStatus),
-          responseTimeHrs: Math.max(1, Number(req.body.responseTimeHrs) || 1),
+          responseTimeHrs,
+          metrics: {
+            create: {
+              profileCompleteness: 55,
+              responseTimeHrs,
+              completedRequests: 0,
+              requestsResponded: 0,
+              trustScore: 30,
+            },
+          },
         },
       });
 
@@ -770,7 +832,7 @@ async function startServer() {
       // Verify the authenticated user owns this provider
       const existing = await prisma.provider.findUnique({
         where: { id: providerId },
-        select: { userId: true },
+        select: { userId: true, category: true, mainCategory: true },
       });
 
       if (!existing) {
@@ -794,13 +856,36 @@ async function startServer() {
           updateData[field] = req.body[field];
         }
       }
-      if (updateData.city) updateData.city = normalizeCity(updateData.city);
+      if (updateData.city) {
+        updateData.city = normalizeCity(updateData.city);
+        if (updateData.city) {
+          const cityRef = await ensureCityReference(updateData.city);
+          updateData.cityId = cityRef.id;
+          updateData.department = cityMetadata[updateData.city as LegacyCity].department;
+        }
+      }
       if (updateData.availability) updateData.availability = normalizeAvailability(updateData.availability);
       if (updateData.formalizationStatus) updateData.formalizationStatus = normalizeFormalizationStatus(updateData.formalizationStatus);
 
+      const categoryChanged = updateData.category !== undefined || updateData.mainCategory !== undefined;
+      const nextCategory = String(updateData.category ?? existing.category).trim();
+      const nextMainCategory = String(updateData.mainCategory ?? existing.mainCategory ?? nextCategory).trim();
+      const rootCategory = categoryChanged ? await ensureCategoryReference(nextCategory) : null;
+      const primaryCategory = categoryChanged ? await ensureCategoryReference(nextMainCategory, rootCategory!.id) : null;
+      const categoryLinks = categoryChanged && rootCategory && primaryCategory ? {
+        deleteMany: {},
+        create: [
+          { categoryId: rootCategory.id, isPrimary: false },
+          ...(primaryCategory.id !== rootCategory.id ? [{ categoryId: primaryCategory.id, isPrimary: true }] : []),
+        ],
+      } : undefined;
+
       const updated = await prisma.provider.update({
         where: { id: providerId },
-        data: updateData,
+        data: {
+          ...updateData,
+          ...(categoryLinks ? { categoryLinks } : {}),
+        },
       });
 
       res.json({ success: true, data: updated });
@@ -815,7 +900,12 @@ async function startServer() {
     try {
       const item = await prisma.catalogItem.findUnique({
         where: { id: req.params.id },
-        include: { provider: { select: { id: true, displayName: true, city: true, trustScore: true } } },
+        include: {
+          cityRef: { include: { department: true } },
+          categoryLinks: { include: { category: true } },
+          metrics: true,
+          provider: { select: { id: true, displayName: true, city: true, cityRef: true, trustScore: true, metrics: true } },
+        },
       });
       if (!item) {
         return res.status(404).json({ success: false, error: "Item no encontrado" });
@@ -845,6 +935,11 @@ async function startServer() {
         return res.status(403).json({ success: false, error: "No tenés permiso para agregar items a este proveedor" });
       }
 
+      const legacyCity = normalizeCity(city) || LegacyCity.MANAGUA;
+      const cityRef = await ensureCityReference(legacyCity);
+      const rootCategory = await ensureCategoryReference(category);
+      const primaryCategory = await ensureCategoryReference(subcategory || category, rootCategory.id);
+
       const item = await prisma.catalogItem.create({
         data: {
           providerId,
@@ -857,11 +952,26 @@ async function startServer() {
           priceMax: priceMax ? Number(priceMax) : null,
           currency: currency || "NIO",
           priceUnit: priceUnit || null,
-          city: city || "MANAGUA",
+          city: legacyCity,
+          cityId: cityRef.id,
           availabilityStatus: availabilityStatus || "DISPONIBLE",
           deliveryAvailable: deliveryAvailable || false,
           pickupAvailable: pickupAvailable || false,
           mainImageUrl: mainImageUrl || null,
+          categoryLinks: {
+            create: [
+              ...(primaryCategory.id !== rootCategory.id
+                ? [{ categoryId: primaryCategory.id, isPrimary: true }]
+                : [{ categoryId: rootCategory.id, isPrimary: true }]),
+            ],
+          },
+          metrics: {
+            create: {
+              viewCount: 0,
+              inquiryCount: 0,
+              requestCount: 0,
+            },
+          },
         },
       });
 
@@ -903,9 +1013,33 @@ async function startServer() {
         }
       }
 
+      if (updateData.city) {
+        const legacyCity = normalizeCity(updateData.city) || LegacyCity.MANAGUA;
+        const cityRef = await ensureCityReference(legacyCity);
+        updateData.city = legacyCity;
+        updateData.cityId = cityRef.id;
+      }
+
+      const categoryChanged = updateData.category !== undefined || updateData.subcategory !== undefined;
+      const nextCategory = String(updateData.category ?? existing.category).trim();
+      const nextSubcategory = String(updateData.subcategory ?? existing.subcategory ?? nextCategory).trim();
+      const rootCategory = categoryChanged ? await ensureCategoryReference(nextCategory) : null;
+      const primaryCategory = categoryChanged ? await ensureCategoryReference(nextSubcategory, rootCategory!.id) : null;
+      const categoryLinks = categoryChanged && rootCategory && primaryCategory ? {
+        deleteMany: {},
+        create: [
+          ...(primaryCategory.id !== rootCategory.id
+            ? [{ categoryId: primaryCategory.id, isPrimary: true }]
+            : [{ categoryId: rootCategory.id, isPrimary: true }]),
+        ],
+      } : undefined;
+
       const updated = await prisma.catalogItem.update({
         where: { id: itemId },
-        data: updateData,
+        data: {
+          ...updateData,
+          ...(categoryLinks ? { categoryLinks } : {}),
+        },
       });
 
       res.json({ success: true, data: updated });
@@ -1031,11 +1165,32 @@ async function startServer() {
   // POST Create Review
   app.post("/api/reviews", authenticate, async (req, res) => {
     try {
-      const { providerId, qualityScore, responseTimeScore, fulfillmentScore, communicationScore, valueScore, comment } = req.body;
+      const { providerId, requestId, qualityScore, responseTimeScore, fulfillmentScore, communicationScore, valueScore, comment } = req.body;
       const { userId } = (req as any).user;
 
-      if (!providerId || !qualityScore) {
+      if (!providerId || !requestId || !qualityScore) {
         return res.status(400).json({ success: false, error: "Faltan campos obligatorios" });
+      }
+
+      const request = await prisma.quoteThread.findUnique({
+        where: { id: requestId },
+        include: { provider: { select: { id: true, userId: true } } },
+      });
+
+      if (!request || request.providerId !== providerId) {
+        return res.status(404).json({ success: false, error: "Solicitud no encontrada para este proveedor" });
+      }
+
+      if (request.status !== "COMPLETED" || !request.completedAt) {
+        return res.status(409).json({ success: false, error: "La reseña se habilita cuando la solicitud está completada por ambas partes" });
+      }
+
+      if (request.senderId !== userId) {
+        return res.status(403).json({ success: false, error: "Solo el solicitante puede reseñar esta solicitud" });
+      }
+
+      if (request.provider.userId === userId) {
+        return res.status(403).json({ success: false, error: "No podés reseñar tu propio perfil" });
       }
 
       const generalScore = (qualityScore + (responseTimeScore || qualityScore) + (fulfillmentScore || qualityScore) + (communicationScore || qualityScore) + (valueScore || qualityScore)) / 5;
@@ -1044,6 +1199,7 @@ async function startServer() {
         data: {
           providerId,
           reviewerId: userId,
+          requestId,
           qualityScore,
           responseTimeScore: responseTimeScore || qualityScore,
           fulfillmentScore: fulfillmentScore || qualityScore,
@@ -1051,8 +1207,36 @@ async function startServer() {
           valueScore: valueScore || qualityScore,
           generalScore,
           comment,
+          analysis: {
+            create: {
+              sentimentScore: null,
+              qualitySignals: { verifiedRequest: true, bilateralCompletion: true },
+              moderationFlags: { suspicious: false },
+              generalScore,
+              algorithmVersion: "v1-route-basic",
+            },
+          },
         },
-        include: { reviewer: { select: { id: true, name: true, image: true } } },
+        include: { reviewer: { select: { id: true, name: true, image: true } }, analysis: true },
+      });
+
+      const reviewStats = await prisma.review.aggregate({
+        where: { providerId },
+        _avg: { generalScore: true },
+        _count: { id: true },
+      });
+
+      await prisma.providerMetrics.upsert({
+        where: { providerId },
+        update: {
+          avgRating: reviewStats._avg.generalScore,
+          totalVerifiedReviews: reviewStats._count.id,
+        },
+        create: {
+          providerId,
+          avgRating: reviewStats._avg.generalScore,
+          totalVerifiedReviews: reviewStats._count.id,
+        },
       });
 
       res.status(201).json({ success: true, data: review });

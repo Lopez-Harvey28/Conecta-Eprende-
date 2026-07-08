@@ -1,12 +1,12 @@
 import { prisma } from "./db";
-import { City } from "@prisma/client";
+import { LegacyCity } from "@prisma/client";
 
 export interface ProviderSearchResult {
   id: string;
   userId: string;
   displayName: string;
   slug: string;
-  city: City;
+  city: LegacyCity | string;
   mainCategory: string | null;
   category: string;
   shortDescription: string | null;
@@ -33,6 +33,18 @@ export interface FullProviderData {
   completedRequestsCount: number;
 }
 
+function primaryCategoryFromLinks(categoryLinks?: Array<{ isPrimary: boolean; category: { name: string } }>) {
+  return categoryLinks?.find((link) => link.isPrimary)?.category.name ?? null;
+}
+
+function firstSecondaryCategoryFromLinks(categoryLinks?: Array<{ isPrimary: boolean; category: { name: string } }>) {
+  return categoryLinks?.find((link) => !link.isPrimary)?.category.name ?? null;
+}
+
+function categoryNamesFromLinks(categoryLinks?: Array<{ category: { name: string } }>) {
+  return categoryLinks?.map((link) => link.category.name).filter(Boolean) ?? [];
+}
+
 export async function searchProviders(params: {
   q?: string;
   city?: string;
@@ -53,8 +65,12 @@ export async function searchProviders(params: {
       displayName: true,
       slug: true,
       city: true,
+      cityRef: { select: { name: true, department: { select: { name: true } } } },
       mainCategory: true,
       category: true,
+      categoryLinks: {
+        include: { category: { select: { name: true } } },
+      },
       shortDescription: true,
       priceRange: true,
       availability: true,
@@ -63,6 +79,13 @@ export async function searchProviders(params: {
       formalizationStatus: true,
       trustScore: {
         select: { finalScore: true },
+      },
+      metrics: {
+        select: {
+          trustScore: true,
+          responseTimeHrs: true,
+          completedRequests: true,
+        },
       },
       responseTimeHrs: true,
       completedRequests: true,
@@ -82,18 +105,18 @@ export async function searchProviders(params: {
     userId: p.userId,
     displayName: p.displayName,
     slug: p.slug,
-    city: p.city,
-    mainCategory: p.mainCategory,
-    category: p.category,
+    city: p.cityRef?.name ?? p.city,
+    mainCategory: primaryCategoryFromLinks(p.categoryLinks) ?? p.mainCategory,
+    category: firstSecondaryCategoryFromLinks(p.categoryLinks) ?? p.category,
     shortDescription: p.shortDescription,
     priceRange: p.priceRange,
     availability: p.availability,
     verified: p.verified,
     verificationLevel: p.verificationLevel,
     formalizationStatus: p.formalizationStatus,
-    trustScore: p.trustScore?.finalScore ?? 0,
-    responseTimeHrs: p.responseTimeHrs,
-    completedRequests: p.completedRequests,
+    trustScore: p.metrics?.trustScore ?? p.trustScore?.finalScore ?? 0,
+    responseTimeHrs: p.metrics?.responseTimeHrs ?? p.responseTimeHrs,
+    completedRequests: p.metrics?.completedRequests ?? p.completedRequests,
     photos: p.photos.map((ph) => ph.imageUrl),
     lat: p.lat,
     lng: p.lng,
@@ -123,14 +146,27 @@ export async function getFullProviderByIdOrSlug(idOrSlug: string): Promise<FullP
     include: {
       photos: true,
       catalogItems: {
-        include: { equipmentDetail: true, photos: true },
+        include: {
+          equipmentDetail: true,
+          photos: true,
+          cityRef: { select: { name: true, department: { select: { name: true } } } },
+          categoryLinks: { include: { category: { select: { name: true } } } },
+          metrics: true,
+        },
       },
       medals: true,
       reviews: {
-        include: { reviewer: { select: { id: true, name: true, image: true } } },
+        include: {
+          reviewer: { select: { id: true, name: true, image: true } },
+          analysis: true,
+        },
         orderBy: { createdAt: "desc" },
       },
       trustScore: true,
+      metrics: true,
+      cityRef: { include: { department: true } },
+      categoryLinks: { include: { category: true } },
+      trustScoreSnapshots: { orderBy: { calculatedAt: "desc" }, take: 1 },
     },
   });
 
@@ -146,13 +182,31 @@ export async function getFullProviderByIdOrSlug(idOrSlug: string): Promise<FullP
       : null;
 
   return {
-    provider,
-    catalogItems: provider.catalogItems,
+    provider: {
+      ...provider,
+      city: provider.cityRef?.name ?? provider.city,
+      department: provider.cityRef?.department?.name ?? provider.department,
+      category: firstSecondaryCategoryFromLinks(provider.categoryLinks) ?? provider.category,
+      mainCategory: primaryCategoryFromLinks(provider.categoryLinks) ?? provider.mainCategory,
+      subcategories: categoryNamesFromLinks(provider.categoryLinks),
+      trustScore: provider.metrics ? { finalScore: provider.metrics.trustScore } : provider.trustScore,
+      responseTimeHrs: provider.metrics?.responseTimeHrs ?? provider.responseTimeHrs,
+      completedRequests: provider.metrics?.completedRequests ?? provider.completedRequests,
+      profileCompleteness: provider.metrics?.profileCompleteness ?? provider.profileCompleteness,
+    },
+    catalogItems: provider.catalogItems.map((item) => ({
+      ...item,
+      city: item.cityRef?.name ?? item.city,
+      category: firstSecondaryCategoryFromLinks(item.categoryLinks) ?? item.category,
+      subcategory: primaryCategoryFromLinks(item.categoryLinks) ?? item.subcategory,
+      viewCount: item.metrics?.viewCount ?? item.viewCount,
+      inquiryCount: item.metrics?.inquiryCount ?? item.inquiryCount,
+    })),
     photos: provider.photos,
     medals: provider.medals,
     reviews: provider.reviews,
     averageReviewScore: avgScore,
-    completedRequestsCount: provider.completedRequests,
+    completedRequestsCount: provider.metrics?.completedRequests ?? provider.completedRequests,
   };
 }
 
@@ -160,7 +214,26 @@ export async function updateProvider(
   providerId: string,
   data: Record<string, any>
 ): Promise<any> {
-  const { id, userId, trustScore, reviews, quoteThreads, checklistState, photos, catalogItems, medals, ...rest } = data;
+  const {
+    id,
+    userId,
+    trustScore,
+    metrics,
+    reviews,
+    quoteThreads,
+    checklistState,
+    formalizationSteps,
+    businessHourRows,
+    deliveryOptionRows,
+    photos,
+    catalogItems,
+    medals,
+    categoryLinks,
+    cityRef,
+    trustScoreSnapshots,
+    riskReports,
+    ...rest
+  } = data;
 
   return prisma.provider.update({
     where: { id: providerId },
@@ -182,10 +255,12 @@ export async function getProviderMapData(city?: string): Promise<Array<{ id: str
       lat: true,
       lng: true,
       category: true,
+      categoryLinks: { include: { category: { select: { name: true } } } },
       availability: true,
       verified: true,
       shortDescription: true,
       trustScore: { select: { finalScore: true } },
+      metrics: { select: { trustScore: true } },
     },
   });
 
@@ -196,10 +271,10 @@ export async function getProviderMapData(city?: string): Promise<Array<{ id: str
       displayName: p.displayName,
       lat: p.lat!,
       lng: p.lng!,
-      category: p.category,
+      category: primaryCategoryFromLinks(p.categoryLinks) ?? p.category,
       availability: p.availability,
       verified: p.verified,
-      trustScore: p.trustScore?.finalScore ?? 0,
+      trustScore: p.metrics?.trustScore ?? p.trustScore?.finalScore ?? 0,
       shortDescription: p.shortDescription,
     }));
 }

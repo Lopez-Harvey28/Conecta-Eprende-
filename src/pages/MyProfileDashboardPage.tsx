@@ -1,15 +1,95 @@
-import { Link } from "react-router-dom";
-import { Award, BadgeCheck, BriefcaseBusiness, Check, Circle, ExternalLink, MessageCircle, Package, Plus, ShieldCheck, Smartphone, UserRound } from "lucide-react";
-import { useAuthStore } from "../stores/auth-store";
-import { useProvidersStore } from "../stores/providers-store";
-import { useQuotesStore } from "../stores/quotes-store";
-import { FormalizationBadge, PageHeader, SkeletonRows, TrustBadge, UnavailableForMvpCard, VerificationBadge } from "../components/mvp/Ui";
 import { useEffect } from "react";
+import { Link } from "react-router-dom";
+import {
+  Award,
+  BriefcaseBusiness,
+  Check,
+  Circle,
+  ExternalLink,
+  MessageCircle,
+  Package,
+  Plus,
+  Search,
+  ShieldCheck,
+  Smartphone,
+  UserRound,
+} from "lucide-react";
+import { useAuthStore, type AuthUser } from "../stores/auth-store";
+import { useProvidersStore } from "../stores/providers-store";
+import { useQuotesStore, type QuoteThread } from "../stores/quotes-store";
+import {
+  EmptyState,
+  FormalizationBadge,
+  PageHeader,
+  RequestStatusBadge,
+  SkeletonRows,
+  TrustBadge,
+  UnavailableForMvpCard,
+  VerificationBadge,
+} from "../components/mvp/Ui";
+
+const ACTIVE_STATUSES = ["OPEN", "IN_CONVERSATION", "QUOTE_SENT", "QUOTE_ACCEPTED"];
+
+function AccountSummary({ user }: { user: AuthUser }) {
+  const displayName = user.name || user.email?.split("@")[0] || "Usuario";
+  const initials = displayName
+    .split(" ")
+    .map(name => name[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+
+  return (
+    <section className="account-summary">
+      <div className="profile-monogram">{initials}</div>
+      <div>
+        <h2>{displayName}</h2>
+        <p>{user.email}</p>
+        <div className="badges">
+          <span className="badge">
+            <UserRound /> {user.providerProfileId ? "Proveedor y solicitante" : "Solicitante"}
+          </span>
+          <span className="badge">
+            <Smartphone /> Teléfono pendiente
+          </span>
+          <span className="badge">{user.emailVerified ? "Email verificado" : "Email pendiente"}</span>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function RecentRequests({ threads }: { threads: QuoteThread[] }) {
+  const recent = [...threads].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).slice(0, 3);
+
+  if (!recent.length) {
+    return (
+      <EmptyState icon={<Search />} title="Todavía no tenés solicitudes">
+        Buscá un proveedor y abrí una conversación para guardar el acuerdo dentro de la plataforma.
+      </EmptyState>
+    );
+  }
+
+  return (
+    <div className="mini-request-list">
+      {recent.map(thread => (
+        <Link to={`/requests/${thread.id}/chat`} key={thread.id}>
+          <span>
+            <RequestStatusBadge status={thread.status as any} />
+            <strong>{thread.subject}</strong>
+            <small>{thread.providerDisplayName || "Proveedor"} · {thread.messages.at(-1)?.text || "Sin mensajes"}</small>
+          </span>
+          <MessageCircle />
+        </Link>
+      ))}
+    </div>
+  );
+}
 
 export default function MyProfileDashboardPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuthStore();
   const { currentProvider, getProvider, clearCurrentProvider, isLoading: providerLoading } = useProvidersStore();
-  const { threads, fetchThreadsByProvider } = useQuotesStore();
+  const { threads, fetchThreadsByProvider, fetchThreadsBySender } = useQuotesStore();
 
   const providerId = user?.providers?.[0]?.id ?? user?.providerProfileId ?? null;
   const provider = currentProvider?.provider;
@@ -23,10 +103,13 @@ export default function MyProfileDashboardPage() {
   }, [providerId, getProvider, clearCurrentProvider]);
 
   useEffect(() => {
+    if (!user) return;
     if (providerId) {
       fetchThreadsByProvider(providerId);
+    } else {
+      fetchThreadsBySender(user.id);
     }
-  }, [providerId, fetchThreadsByProvider]);
+  }, [user, providerId, fetchThreadsByProvider, fetchThreadsBySender]);
 
   if (authLoading || providerLoading) {
     return (
@@ -41,28 +124,89 @@ export default function MyProfileDashboardPage() {
       <div className="content-page">
         <div className="empty-state">
           <h1>Iniciá sesión</h1>
-          <p>Necesitás iniciar sesión para ver tu panel de negocio.</p>
+          <p>Necesitás iniciar sesión para ver tu cuenta.</p>
           <Link to="/auth/login" className="button primary">Iniciar sesión</Link>
         </div>
       </div>
     );
   }
 
+  const openThreads = threads.filter(thread => ACTIVE_STATUSES.includes(thread.status));
+  const completedThreads = threads.filter(thread => thread.status === "COMPLETED");
+
   if (!providerId || !provider) {
     return (
       <div className="content-page">
         <PageHeader
-          eyebrow="Centro de negocio"
-          title="Mi perfil"
-          description="Gestioná tu presencia pública, catálogo, conversaciones y crecimiento de confianza."
+          eyebrow="Mi cuenta"
+          title="Panel de solicitante"
+          description="Seguí tus solicitudes, retomá conversaciones y prepará tu cuenta para pedir cotizaciones con proveedores locales."
         />
-        <div className="empty-state">
-          <BriefcaseBusiness size={48} />
-          <h1>Completá tu registro de negocio</h1>
-          <p>Aún no tenés un negocio registrado. Creá tu primer perfil para empezar a conectar con clientes.</p>
-          <Link to="/me/profile/edit" className="button primary">
-            <Plus /> Crear mi negocio
-          </Link>
+
+        <AccountSummary user={user} />
+
+        <div className="profile-dashboard requester-dashboard">
+          <main>
+            <section className="dashboard-panel">
+              <div className="section-heading">
+                <div>
+                  <span className="eyebrow">Actividad como solicitante</span>
+                  <h2>Solicitudes y conversaciones</h2>
+                </div>
+                <MessageCircle />
+              </div>
+              <div className="business-metrics">
+                <div>
+                  <strong>{openThreads.length}</strong>
+                  <span>Activas</span>
+                </div>
+                <div>
+                  <strong>{completedThreads.length}</strong>
+                  <span>Completadas</span>
+                </div>
+                <div>
+                  <strong>{threads.length}</strong>
+                  <span>Total</span>
+                </div>
+              </div>
+              <RecentRequests threads={threads} />
+              <div className="card-actions">
+                <Link className="button primary" to="/search">
+                  <Search /> Buscar proveedores
+                </Link>
+                <Link className="button secondary" to="/requests">
+                  Ver todas mis solicitudes
+                </Link>
+              </div>
+            </section>
+
+            <section className="provider-upgrade-panel">
+              <div>
+                <span className="eyebrow">También podés vender</span>
+                <h2>Creá un perfil proveedor cuando estés listo</h2>
+                <p>
+                  La cuenta puede funcionar como solicitante ahora y, más adelante, activar un negocio con catálogo,
+                  mapa, confianza y conversaciones comerciales.
+                </p>
+              </div>
+              <Link to="/me/profile/edit" className="button primary">
+                <Plus /> Crear perfil proveedor
+              </Link>
+            </section>
+          </main>
+
+          <aside>
+            <section className="content-section">
+              <h2><ShieldCheck /> Estado de cuenta</h2>
+              <div className="profile-checklist">
+                <div className="done"><Check /> Cuenta creada</div>
+                <div className={user.emailVerified ? "done" : ""}>{user.emailVerified ? <Check /> : <Circle />} Email verificado</div>
+                <div><Circle /> Teléfono pendiente</div>
+                <div><Circle /> Perfil proveedor opcional</div>
+              </div>
+            </section>
+            <UnavailableForMvpCard title="Favoritos y recomendaciones guardadas no disponibles para el MVP" />
+          </aside>
         </div>
       </div>
     );
@@ -72,11 +216,7 @@ export default function MyProfileDashboardPage() {
   const activeItems = catalogItems.filter((item: any) => item.availabilityStatus === "DISPONIBLE");
   const inactiveItems = catalogItems.filter((item: any) => item.availabilityStatus !== "DISPONIBLE");
   const mostConsulted = [...catalogItems].sort((a: any, b: any) => b.inquiryCount - a.inquiryCount)[0];
-
-  const openThreads = threads.filter(t => t.status === "OPEN" || t.status === "IN_CONVERSATION" || t.status === "QUOTE_SENT" || t.status === "QUOTE_ACCEPTED");
-  const completedThreads = threads.filter(t => t.status === "COMPLETED");
-
-  const portfolioImages = currentProvider?.photos?.map((p: any) => p.imageUrl).filter(Boolean) || [];
+  const portfolioImages = currentProvider?.photos?.map((photo: any) => photo.imageUrl).filter(Boolean) || [];
   const trustScore = currentProvider?.provider?.trustScore?.finalScore ?? provider.trustScore ?? 0;
   const medals = currentProvider?.medals || [];
 
@@ -91,17 +231,14 @@ export default function MyProfileDashboardPage() {
     { label: "Disponibilidad", done: !!provider.availability },
   ];
 
-  const completeness = Math.round(checklist.filter(item => item.done).length / checklist.length * 100);
-
-  const displayName = user.name || user.email?.split("@")[0] || "Usuario";
-  const initials = displayName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
+  const completeness = Math.round((checklist.filter(item => item.done).length / checklist.length) * 100);
 
   return (
     <div className="content-page">
       <PageHeader
         eyebrow="Centro de negocio"
         title="Mi perfil"
-        description="Gestioná tu presencia pública, catálogo, conversaciones y crecimiento de confianza."
+        description="Gestioná tu cuenta, presencia pública, catálogo, conversaciones y crecimiento de confianza."
         actions={
           <div className="page-actions">
             <Link className="button secondary" to={`/providers/${provider.id}`}>
@@ -114,18 +251,7 @@ export default function MyProfileDashboardPage() {
         }
       />
 
-      <section className="account-summary">
-        <div className="profile-monogram">{initials}</div>
-        <div>
-          <h2>{user.name || "Usuario"}</h2>
-          <p>{user.email}</p>
-          <div className="badges">
-            <span className="badge"><Smartphone /> Teléfono verificado</span>
-            <span className="badge"><UserRound /> {user.role}</span>
-            <span className="badge">Cuenta activa</span>
-          </div>
-        </div>
-      </section>
+      <AccountSummary user={user} />
 
       <div className="profile-dashboard">
         <main>
@@ -135,7 +261,7 @@ export default function MyProfileDashboardPage() {
               style={{ backgroundImage: `url(${portfolioImages[0] || provider.coverImageUrl || ""})` }}
             />
             <div>
-              <span className="eyebrow">Vista previa pública</span>
+              <span className="eyebrow">Resumen de gestión</span>
               <h2>{provider.displayName}</h2>
               <p>{provider.aboutDescription || provider.shortDescription}</p>
               <div className="badges">
@@ -154,9 +280,7 @@ export default function MyProfileDashboardPage() {
               </div>
               <strong>{checklist.filter(item => item.done).length}/{checklist.length}</strong>
             </div>
-            <div className="progress">
-              <span style={{ width: `${completeness}%` }} />
-            </div>
+            <div className="progress"><span style={{ width: `${completeness}%` }} /></div>
             <div className="profile-checklist">
               {checklist.map(item => (
                 <div className={item.done ? "done" : ""} key={item.label}>
@@ -176,26 +300,13 @@ export default function MyProfileDashboardPage() {
               <Package />
             </div>
             <div className="business-metrics">
-              <div>
-                <strong>{activeItems.length}</strong>
-                <span>Activos</span>
-              </div>
-              <div>
-                <strong>{inactiveItems.length}</strong>
-                <span>Inactivos</span>
-              </div>
-              <div>
-                <strong>{mostConsulted?.title || "Sin datos"}</strong>
-                <span>Más consultado</span>
-              </div>
+              <div><strong>{activeItems.length}</strong><span>Activos</span></div>
+              <div><strong>{inactiveItems.length}</strong><span>Inactivos</span></div>
+              <div><strong>{mostConsulted?.title || "Sin datos"}</strong><span>Más consultado</span></div>
             </div>
             <div className="card-actions">
-              <Link className="button secondary" to="/me/products">
-                Administrar productos y servicios
-              </Link>
-              <Link className="button primary" to="/me/products/new">
-                <Plus /> Agregar oferta
-              </Link>
+              <Link className="button secondary" to="/me/products">Administrar productos y servicios</Link>
+              <Link className="button primary" to="/me/products/new"><Plus /> Agregar oferta</Link>
             </div>
           </section>
 
@@ -208,19 +319,11 @@ export default function MyProfileDashboardPage() {
               <MessageCircle />
             </div>
             <div className="business-metrics">
-              <div>
-                <strong>{openThreads.length}</strong>
-                <span>Mensajes no leídos</span>
-              </div>
-              <div>
-                <strong>{openThreads.length}</strong>
-                <span>Solicitudes activas</span>
-              </div>
-              <div>
-                <strong>{completedThreads.length}</strong>
-                <span>Completadas</span>
-              </div>
+              <div><strong>{openThreads.length}</strong><span>Activas</span></div>
+              <div><strong>{completedThreads.length}</strong><span>Completadas</span></div>
+              <div><strong>{threads.length}</strong><span>Total</span></div>
             </div>
+            <RecentRequests threads={threads} />
             <div className="card-actions">
               <Link className="button primary" to="/requests">Ver conversaciones</Link>
               <Link className="button secondary" to="/requests">Ver solicitudes</Link>
@@ -236,14 +339,8 @@ export default function MyProfileDashboardPage() {
             <strong className="big-score">{trustScore}<small>/100</small></strong>
             <p>Respondé dentro de la app, completá trabajos con confirmación bilateral y mantené actualizado tu catálogo.</p>
             <div className="medal-list">
-              {medals.map((medal: any) => (
-                <span key={medal.id}><Award />{medal.medalType}</span>
-              ))}
-              {activeItems.length < 3 && (
-                <span className="locked">
-                  <Package /> Catálogo activo: faltan {3 - activeItems.length}
-                </span>
-              )}
+              {medals.map((medal: any) => <span key={medal.id}><Award />{medal.medalType}</span>)}
+              {activeItems.length < 3 && <span className="locked"><Package /> Catálogo activo: faltan {3 - activeItems.length}</span>}
             </div>
             <Link className="text-link" to="/trust">Entender mi puntaje</Link>
           </section>

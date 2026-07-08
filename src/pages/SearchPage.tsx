@@ -4,6 +4,7 @@ import { CalendarCheck, List, Map, MapPin, Search, SlidersHorizontal, Sparkles }
 import MvpProviderMap, { type SearchMapProvider } from "../components/map/MvpProviderMap";
 import { CATEGORY_OPTIONS, CREATIVE_CITIES, type CreativeCity, type PriceRange } from "../lib/mvp-data";
 import { useProvidersStore, type ProviderSearchResult } from "../stores/providers-store";
+import { useAuthStore } from "../stores/auth-store";
 import { AvailabilityBadge, EmptyState, FormalizationBadge, PriceBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
 
 const availabilityLabel: Record<string, string> = {
@@ -64,6 +65,7 @@ function extractIntent(query: string) {
 
 export default function SearchPage() {
   const { providers, searchProviders, isLoading } = useProvidersStore();
+  const { user } = useAuthStore();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState(params.get("query") || "");
@@ -78,6 +80,7 @@ export default function SearchPage() {
   const cardRefs = useRef<Record<string, HTMLElement | null>>({});
 
   const intent = useMemo(() => extractIntent(query), [query]);
+  const ownedProviderId = user?.providers?.[0]?.id || user?.providerProfileId;
 
   useEffect(() => {
     searchProviders({ q: params.get("query") || undefined, city: params.get("city") || undefined });
@@ -126,8 +129,9 @@ export default function SearchPage() {
       formalizationLabel: formalizationLabel[provider.formalizationStatus] || provider.formalizationStatus || "",
       description: provider.shortDescription || "",
       image: provider.photos?.[0] || "",
+      isOwnProfile: provider.id === ownedProviderId,
     }));
-  }, [results]);
+  }, [results, ownedProviderId]);
 
   useEffect(() => {
     if (selectedId) {
@@ -246,7 +250,11 @@ export default function SearchPage() {
                     </div>
                     <div className="card-actions">
                       <Link className="button secondary" to={`/providers/${provider.id}`}>Ver perfil</Link>
-                      <button className="button primary" onClick={() => navigate(`/requests/new?providerId=${provider.id}`)}>Solicitar cotización</button>
+                      {provider.id === ownedProviderId ? (
+                        <Link className="button primary" to="/me/profile/edit">Editar mi perfil</Link>
+                      ) : (
+                        <button className="button primary" onClick={() => navigate(`/requests/new?providerId=${provider.id}`)}>Solicitar cotización</button>
+                      )}
                     </div>
                   </div>
                 </article>

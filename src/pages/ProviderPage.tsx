@@ -106,7 +106,7 @@ export default function ProviderPage() {
     );
   }
 
-  const isOwnProfile = user?.providers?.[0]?.id === provider.id;
+  const isOwnProfile = (user?.providers?.[0]?.id || user?.providerProfileId) === provider.id;
 
   return (
     <div className="provider-page">
@@ -134,9 +134,15 @@ export default function ProviderPage() {
             <FormalizationBadge status={(provider.formalizationStatus as any) || "INFORMAL"} />
           </div>
           <div className="provider-primary-actions">
-            <Link className="button primary" to={`/requests/new?providerId=${provider.id}`}>
-              <MessageCircle /> Chatear y solicitar cotización
-            </Link>
+            {isOwnProfile ? (
+              <Link className="button primary" to="/me/profile/edit">
+                Editar mi perfil público
+              </Link>
+            ) : (
+              <Link className="button primary" to={`/requests/new?providerId=${provider.id}`}>
+                <MessageCircle /> Chatear y solicitar cotización
+              </Link>
+            )}
             <a className="button secondary" href="#ofertas">
               <Package /> Ver productos y servicios
             </a>
@@ -218,9 +224,15 @@ export default function ProviderPage() {
                         </div>
                       </dl>
                       <div className="card-actions">
-                        <Link className="button primary" to={`/requests/new?providerId=${provider.id}&productId=${offer.id}`}>
-                          Consultar por este producto
-                        </Link>
+                        {isOwnProfile ? (
+                          <Link className="button primary" to={`/me/products/${offer.id}/edit`}>
+                            Editar oferta
+                          </Link>
+                        ) : (
+                          <Link className="button primary" to={`/requests/new?providerId=${provider.id}&productId=${offer.id}`}>
+                            Consultar por este producto
+                          </Link>
+                        )}
                         <Link className="button secondary" to={`/providers/${provider.id}/products/${offer.id}`}>
                           Ver detalle
                         </Link>

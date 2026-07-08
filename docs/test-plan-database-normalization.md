@@ -1,0 +1,27 @@
+# Test plan: database normalization
+
+- [ ] Docker database is running.
+- [ ] `npx prisma migrate dev` applies the additive migration without reset.
+- [ ] `npx prisma generate` succeeds.
+- [ ] `npm run db:seed` succeeds.
+- [ ] `npm run lint` passes.
+- [ ] `npm run build` passes.
+- [ ] Login still works with a seeded account.
+- [ ] Current user/session still loads.
+- [ ] Provider search returns seeded providers.
+- [ ] Provider cards show city and category from normalized relations.
+- [ ] Provider map still shows providers.
+- [ ] Provider profile renders.
+- [ ] Catalog items render.
+- [ ] Creating a provider writes `cityId`, `ProviderCategory`, and `ProviderMetrics`.
+- [ ] Editing provider city/category updates normalized references.
+- [ ] Creating a catalog item writes `cityId`, `CatalogItemCategory`, and `CatalogItemMetrics`.
+- [ ] Requester can create a request to a real seeded provider.
+- [ ] Request-linked chat works.
+- [ ] Completed request unlocks verified review.
+- [ ] Review links to request.
+- [ ] Self-review is rejected.
+- [ ] Duplicate review for the same request/provider/reviewer is rejected.
+- [ ] Trust score can be shown from metrics/trust score compatibility.
+- [ ] Risk reports are seeded without private phone, legal document, or chat-content data.
+- [ ] Formalization remains roadmap/support data only.

@@ -55,6 +55,19 @@ body,.app-shell,.app-content{background:var(--neutral)}
 .button.primary,.button-primary,.hero-search button,.search-toolbar form button,.auth-submit-btn{background:var(--tertiary)!important;color:var(--neutral)!important;border-color:var(--tertiary)!important}
 .button.primary:hover,.button-primary:hover,.hero-search button:hover,.search-toolbar form button:hover,.auth-submit-btn:hover{background:var(--cta-hover)!important;border-color:var(--cta-hover)!important}
 
+/* Keep developer tools above Leaflet panes and controls on search/map pages. */
+.demo-profile-switcher,
+.demo-profile-switcher-toggle{
+  position:fixed;
+  z-index:2147483000!important;
+}
+
+.simple-provider-map .leaflet-container,
+.simple-provider-map .leaflet-pane,
+.simple-provider-map .leaflet-control-container{
+  z-index:auto;
+}
+
 /* Requester dashboard + account/dev polish */
 .requester-dashboard .dashboard-panel{border-color:color-mix(in srgb,var(--tertiary),transparent 70%)}
 .mini-request-list{display:grid;gap:10px;margin:14px 0}.mini-request-list a{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px;border:1px solid var(--line);border-radius:14px;background:var(--paper);color:var(--ink);transition:border-color .18s ease,transform .18s ease}.mini-request-list a:hover{border-color:var(--tertiary);transform:translateY(-1px)}.mini-request-list span{display:grid;gap:5px}.mini-request-list small{color:var(--muted);line-height:1.35}.mini-request-list svg{color:var(--tertiary)}

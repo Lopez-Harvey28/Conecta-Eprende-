@@ -1,9 +1,10 @@
 import { Link } from "react-router-dom";
 import { FlaskConical, ShieldCheck, UserCog } from "lucide-react";
+import { useState } from "react";
 import { createDemoAuthUser, demoProfiles } from "../../auth/demoProfiles";
 import { useAuthStore } from "../../stores/auth-store";
 
-const enabled = import.meta.env.VITE_ENABLE_DEMO_PROFILE_SWITCHER === "true";
+const enabled = import.meta.env.DEV && import.meta.env.VITE_ENABLE_DEMO_PROFILE_SWITCHER === "true";
 
 const links = [
   ["Requester", "/requests/sent"],
@@ -15,14 +16,29 @@ const links = [
 export default function DemoProfileSwitcher() {
   const user = useAuthStore(state => state.user);
   const setUser = useAuthStore(state => state.setUser);
+  const [collapsed, setCollapsed] = useState(() => typeof window !== "undefined" && window.innerWidth < 1100);
   if (!enabled) return null;
   const selected = demoProfiles.find(option => option.user.id === user?.id) ?? demoProfiles[0];
+
+  if (collapsed) {
+    return (
+      <button
+        className="demo-profile-switcher-toggle"
+        type="button"
+        onClick={() => setCollapsed(false)}
+        aria-expanded="false"
+      >
+        <FlaskConical /> Dev testing
+      </button>
+    );
+  }
 
   return (
     <aside className="demo-profile-switcher" aria-label="Developer demo profile switcher">
       <div className="demo-switcher-head">
         <span><FlaskConical /> Dev testing</span>
         <strong>{selected.label}</strong>
+        <button type="button" onClick={() => setCollapsed(true)} aria-label="Minimizar panel dev">Minimizar</button>
       </div>
       <label>
         Perfil demo

@@ -72,6 +72,24 @@ model User {
   reviewedRiskReports      RiskReport[]       @relation("RiskReportReviewer")
 
   providers                Provider[]
+  roleAssignments          RoleAssignment[]
+  moderationAuditLogs      ModerationAuditLog[] @relation("ModerationAuditActor")
+  providerStatusUpdates    Provider[]           @relation("ProviderStatusUpdatedBy")
+  escalatedRiskReports     RiskReport[]         @relation("RiskReportEscalatedBy")
+  resolvedRiskReports      RiskReport[]         @relation("RiskReportResolvedBy")
+}
+
+model RoleAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  role      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, role])
+  @@index([role])
 }
 
 model RefreshToken {
@@ -215,6 +233,12 @@ model Provider {
   deliveryOptions     String[]
 
   availability        Availability        @default(DISPONIBLE)
+  status              String              @default("ACTIVE")
+  statusReason        String?             @db.Text
+  suspendedUntil      DateTime?
+  statusUpdatedAt     DateTime?
+  statusUpdatedById   String?
+  statusUpdatedBy     User?               @relation("ProviderStatusUpdatedBy", fields: [statusUpdatedById], references: [id], onDelete: SetNull)
   verified            Boolean             @default(false)
   verificationLevel  String?              // "Perfil completo", "Teléfono verificado", "Documento verificado"
   formalizationStatus FormalizationStatus @default(INFORMAL)
@@ -253,6 +277,8 @@ model Provider {
   @@index([category])
   @@index([mainCategory])
   @@index([availability])
+  @@index([status])
+  @@index([statusUpdatedById])
   @@index([userId])
   @@index([slug])
 }
@@ -438,15 +464,41 @@ model RiskReport {
   newAccountsPercentage           Float?
   ratingConcentrationScore        Float?
   status                          String    @default("OPEN")
+  reviewerNotes                   String?   @db.Text
   recommendedAction               String?
   generatedAt                     DateTime  @default(now())
   reviewedAt                      DateTime?
   reviewedByUserId                String?
   reviewedBy                      User?     @relation("RiskReportReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  escalatedAt                     DateTime?
+  escalatedByUserId               String?
+  escalatedBy                     User?     @relation("RiskReportEscalatedBy", fields: [escalatedByUserId], references: [id], onDelete: SetNull)
+  resolvedAt                      DateTime?
+  resolvedByUserId                String?
+  resolvedBy                      User?     @relation("RiskReportResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
 
   @@index([providerId])
   @@index([status])
   @@index([reviewedByUserId])
+  @@index([escalatedByUserId])
+  @@index([resolvedByUserId])
+}
+
+model ModerationAuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String
+  actor       User     @relation("ModerationAuditActor", fields: [actorUserId], references: [id], onDelete: Cascade)
+  action      String
+  targetType  String
+  targetId    String
+  reason      String   @db.Text
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([actorUserId])
+  @@index([action])
+  @@index([targetType, targetId])
+  @@index([createdAt])
 }
 
 // ──────────────────────────────────────────────────────────

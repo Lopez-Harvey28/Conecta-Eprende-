@@ -251,11 +251,11 @@ const threadSeeds = [
 async function main() {
   const password = await bcrypt.hash(PASSWORD, 12);
 
-  await prisma.quoteOffer.deleteMany({ where: { requestId: { startsWith: "seed_" } } });
-  await prisma.quoteMessage.deleteMany({ where: { threadId: { startsWith: "seed_" } } });
+  await prisma.quoteOffer.deleteMany({ where: { OR: [{ requestId: { startsWith: "seed_" } }, { request: { providerId: { startsWith: "seed_" } } }] } });
+  await prisma.quoteMessage.deleteMany({ where: { OR: [{ threadId: { startsWith: "seed_" } }, { thread: { providerId: { startsWith: "seed_" } } }] } });
   await prisma.reviewAnalysis.deleteMany({ where: { reviewId: { startsWith: "seed_" } } });
-  await prisma.review.deleteMany({ where: { id: { startsWith: "seed_" } } });
-  await prisma.quoteThread.deleteMany({ where: { id: { startsWith: "seed_" } } });
+  await prisma.review.deleteMany({ where: { OR: [{ id: { startsWith: "seed_" } }, { providerId: { startsWith: "seed_" } }, { request: { providerId: { startsWith: "seed_" } } }] } });
+  await prisma.quoteThread.deleteMany({ where: { OR: [{ id: { startsWith: "seed_" } }, { providerId: { startsWith: "seed_" } }] } });
   await prisma.catalogItemMetrics.deleteMany({ where: { catalogItemId: { startsWith: "seed_" } } });
   await prisma.catalogItemCategory.deleteMany({ where: { catalogItemId: { startsWith: "seed_" } } });
   await prisma.catalogItemPhoto.deleteMany({ where: { catalogItemId: { startsWith: "seed_" } } });
@@ -273,6 +273,8 @@ async function main() {
   await prisma.formalizationChecklist.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
   await prisma.trustScore.deleteMany({ where: { providerId: { startsWith: "seed_" } } });
   await prisma.provider.deleteMany({ where: { id: { startsWith: "seed_" } } });
+  await prisma.moderationAuditLog.deleteMany({ where: { targetId: { startsWith: "seed_" } } });
+  await prisma.roleAssignment.deleteMany({ where: { userId: { startsWith: "seed_" } } });
 
   const cityIdByLegacy = new Map<LegacyCity, string>();
   const categoryIdBySlug = new Map<string, string>();
@@ -339,6 +341,45 @@ async function main() {
     });
   }
 
+  await prisma.moderationAuditLog.createMany({
+    data: [
+      {
+        id: "seed_audit_suspend_cafe",
+        actorUserId: "seed_user_superadmin",
+        action: "PROVIDER_SUSPENDED",
+        targetType: "PROVIDER",
+        targetId: "seed_provider_cafe",
+        reason: "Caso semilla para probar restricciones de proveedor suspendido.",
+        metadata: { seeded: true, nextStatus: "SUSPENDED" },
+        createdAt: now,
+      },
+      {
+        id: "seed_audit_ban_equipo",
+        actorUserId: "seed_user_superadmin",
+        action: "PROVIDER_BANNED",
+        targetType: "PROVIDER",
+        targetId: "seed_provider_equipos",
+        reason: "Caso semilla para probar restricciones de proveedor baneado.",
+        metadata: { seeded: true, nextStatus: "BANNED" },
+        createdAt: now,
+      },
+    ],
+    skipDuplicates: true,
+  });
+
+  await prisma.roleAssignment.createMany({
+    data: [
+      { id: "seed_role_requester", userId: "seed_user_requester", role: "REQUESTER", createdAt: now, updatedAt: now },
+      { id: "seed_role_provider_textil", userId: "seed_user_provider_textil", role: "PROVIDER", createdAt: now, updatedAt: now },
+      { id: "seed_role_provider_empaques", userId: "seed_user_provider_empaques", role: "PROVIDER", createdAt: now, updatedAt: now },
+      { id: "seed_role_provider_cafe", userId: "seed_user_provider_cafe", role: "PROVIDER", createdAt: now, updatedAt: now },
+      { id: "seed_role_provider_equipo", userId: "seed_user_provider_equipo", role: "PROVIDER", createdAt: now, updatedAt: now },
+      { id: "seed_role_admin_reviewer", userId: "seed_user_admin", role: "ADMIN_REVIEWER", createdAt: now, updatedAt: now },
+      { id: "seed_role_super_admin", userId: "seed_user_superadmin", role: "SUPER_ADMIN", createdAt: now, updatedAt: now },
+    ],
+    skipDuplicates: true,
+  });
+
   for (const provider of providerSeeds) {
     const cityId = cityIdByLegacy.get(provider.city);
     const rootCategoryId = categoryIdBySlug.get(slugify(provider.category));
@@ -359,6 +400,15 @@ async function main() {
         aboutDescription: provider.aboutDescription,
         priceRange: provider.priceRange,
         availability: provider.availability,
+        status: provider.id === "seed_provider_cafe" ? "SUSPENDED" : provider.id === "seed_provider_equipos" ? "BANNED" : "ACTIVE",
+        statusReason: provider.id === "seed_provider_cafe"
+          ? "Caso semilla: revisión temporal por señales agregadas de riesgo."
+          : provider.id === "seed_provider_equipos"
+            ? "Caso semilla: baneo para pruebas de restricción."
+            : null,
+        suspendedUntil: provider.id === "seed_provider_cafe" ? new Date("2026-08-07T12:00:00.000Z") : null,
+        statusUpdatedAt: provider.id === "seed_provider_cafe" || provider.id === "seed_provider_equipos" ? now : null,
+        statusUpdatedById: provider.id === "seed_provider_cafe" || provider.id === "seed_provider_equipos" ? "seed_user_superadmin" : null,
         formalizationStatus: provider.formalizationStatus,
         verified: provider.verified,
         verificationLevel: provider.verificationLevel,
@@ -623,7 +673,7 @@ async function main() {
 
   console.log("Seed data ready.");
   console.log(`Demo password for all seed users: ${PASSWORD}`);
-  console.log("Try: requester@conecta.test, textil@conecta.test, admin@conecta.test");
+  console.log("Try: requester@conecta.test, textil@conecta.test, cafe@conecta.test, equipos@conecta.test, admin@conecta.test, superadmin@conecta.test");
 }
 
 main()

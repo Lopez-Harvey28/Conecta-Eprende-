@@ -18,6 +18,21 @@ npm run lint
 npm run build
 ```
 
+## Cuentas seed para pruebas manuales
+
+Todas usan la contraseña `Conecta123!`.
+
+| Propósito | Email |
+|---|---|
+| Solicitante normal | `requester@conecta.test` |
+| Proveedor activo | `textil@conecta.test` |
+| Proveedor suspendido | `cafe@conecta.test` |
+| Proveedor baneado | `equipos@conecta.test` |
+| Admin reviewer | `admin@conecta.test` |
+| Super admin | `superadmin@conecta.test` |
+
+Los roles granulares (`ADMIN_REVIEWER`, `SUPER_ADMIN`) y los estados de proveedor (`ACTIVE`, `SUSPENDED`, `BANNED`) viven en la base de datos. Ver `docs/admin-reviewer-super-admin-statuses.md`.
+
 ## Flujo de demostración
 
 1. Buscar `Necesito empaques ecológicos en León que sean baratos`.

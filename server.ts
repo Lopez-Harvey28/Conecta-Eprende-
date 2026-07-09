@@ -3,7 +3,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import cookieParser from "cookie-parser";
-import { Availability, LegacyCity, FormalizationStatus } from "@prisma/client";
+import { Availability, LegacyCity, FormalizationStatus, Prisma } from "@prisma/client";
 import { extractIntent } from "./src/lib/ai/extract-intent";
 import { generateQuoteDraft } from "./src/lib/ai/quote-draft";
 import { generateEnhancedBio } from "./src/lib/ai/enhance-bio";
@@ -171,6 +171,59 @@ async function startServer() {
     return { thread, role: null as "client" | "provider" | null };
   }
 
+  async function getUserSystemRoles(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        role: true,
+        roleAssignments: { select: { role: true } },
+      },
+    });
+
+    const roles = new Set<string>();
+    if (user?.role) roles.add(user.role);
+    user?.roleAssignments.forEach((assignment) => roles.add(assignment.role));
+    return roles;
+  }
+
+  const requireAdminReviewerOrSuperAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const { userId } = (req as any).user;
+    const roles = await getUserSystemRoles(userId);
+    if (roles.has("ADMIN") || roles.has("ADMIN_REVIEWER") || roles.has("SUPER_ADMIN")) {
+      return next();
+    }
+    return res.status(403).json({ success: false, error: "Necesitás permisos de revisión administrativa" });
+  };
+
+  const requireSuperAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const { userId } = (req as any).user;
+    const roles = await getUserSystemRoles(userId);
+    if (roles.has("SUPER_ADMIN")) {
+      return next();
+    }
+    return res.status(403).json({ success: false, error: "Solo super administración puede ejecutar esta acción" });
+  };
+
+  async function createModerationAuditLog(data: {
+    actorUserId: string;
+    action: string;
+    targetType: string;
+    targetId: string;
+    reason: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    return prisma.moderationAuditLog.create({
+      data: {
+        actor: { connect: { id: data.actorUserId } },
+        action: data.action,
+        targetType: data.targetType,
+        targetId: data.targetId,
+        reason: data.reason,
+        metadata: data.metadata as Prisma.InputJsonValue | undefined,
+      },
+    });
+  }
+
   // ──────────────────────────────────────────────────────────
   // AUTH ROUTES
   // ──────────────────────────────────────────────────────────
@@ -225,6 +278,10 @@ async function startServer() {
         },
       });
 
+      await prisma.roleAssignment.create({
+        data: { userId: user.id, role: "REQUESTER" },
+      });
+
       setAuthCookies(res, accessToken, refreshToken);
 
       res.status(201).json({
@@ -235,6 +292,11 @@ async function startServer() {
             email: user.email,
             name: user.name,
             role: user.role,
+            roleLabels: [user.role, "REQUESTER"],
+            providers: [],
+            providerProfileId: null,
+            emailVerified: null,
+            createdAt: new Date(),
           },
         },
       });
@@ -260,7 +322,28 @@ async function startServer() {
 
       const user = await prisma.user.findUnique({
         where: { email },
-        select: { id: true, email: true, name: true, role: true, password: true },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          password: true,
+          emailVerified: true,
+          createdAt: true,
+          roleAssignments: { select: { role: true } },
+          providers: {
+            select: {
+              id: true,
+              displayName: true,
+              slug: true,
+              verified: true,
+              formalizationStatus: true,
+              status: true,
+              statusReason: true,
+              suspendedUntil: true,
+            },
+          },
+        },
       });
 
       if (!user || !user.password) {
@@ -296,6 +379,7 @@ async function startServer() {
       });
 
       setAuthCookies(res, accessToken, refreshToken);
+      const roleLabels = Array.from(new Set([user.role, ...user.roleAssignments.map((assignment) => assignment.role)]));
 
       res.json({
         success: true,
@@ -305,6 +389,11 @@ async function startServer() {
             email: user.email,
             name: user.name,
             role: user.role,
+            emailVerified: user.emailVerified,
+            createdAt: user.createdAt,
+            providers: user.providers,
+            roleLabels,
+            providerProfileId: user.providers[0]?.id ?? null,
           },
         },
       });
@@ -392,6 +481,7 @@ async function startServer() {
           role: true,
           emailVerified: true,
           createdAt: true,
+          roleAssignments: { select: { role: true } },
           providers: {
             select: {
               id: true,
@@ -399,6 +489,9 @@ async function startServer() {
               slug: true,
               verified: true,
               formalizationStatus: true,
+              status: true,
+              statusReason: true,
+              suspendedUntil: true,
             },
           },
         },
@@ -408,7 +501,17 @@ async function startServer() {
         return res.status(404).json({ success: false, error: "Usuario no encontrado" });
       }
 
-      res.json({ success: true, data: { user } });
+      const roleLabels = Array.from(new Set([user.role, ...user.roleAssignments.map((assignment) => assignment.role)]));
+      res.json({
+        success: true,
+        data: {
+          user: {
+            ...user,
+            roleLabels,
+            providerProfileId: user.providers[0]?.id ?? null,
+          },
+        },
+      });
     } catch (error) {
       console.error("Me error:", error);
       res.status(500).json({ success: false, error: "Error al obtener usuario" });
@@ -707,7 +810,7 @@ async function startServer() {
 
       const provider = await prisma.provider.findUnique({
         where: { id: providerId },
-        select: { id: true, userId: true },
+        select: { id: true, userId: true, status: true, statusReason: true, suspendedUntil: true },
       });
 
       if (!provider) {
@@ -718,6 +821,15 @@ async function startServer() {
         return res.status(409).json({
           success: false,
           error: "No podés solicitar una cotización a tu propio perfil.",
+        });
+      }
+
+      if (provider.status === "SUSPENDED" || provider.status === "BANNED") {
+        return res.status(403).json({
+          success: false,
+          error: provider.status === "BANNED"
+            ? "Este proveedor está baneado y no puede recibir nuevas solicitudes."
+            : "Este proveedor está suspendido temporalmente y no puede recibir nuevas solicitudes.",
         });
       }
 
@@ -847,6 +959,248 @@ async function startServer() {
     } catch (error) {
       console.error("Update quote error:", error);
       res.status(500).json({ success: false, error: "Error al actualizar cotización" });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────
+  // ADMIN REVIEWER / SUPER ADMIN MODERATION ROUTES
+  // ──────────────────────────────────────────────────────────
+
+  const riskReportInclude = {
+    provider: {
+      select: {
+        id: true,
+        displayName: true,
+        slug: true,
+        status: true,
+        statusReason: true,
+        suspendedUntil: true,
+        city: true,
+        category: true,
+      },
+    },
+    reviewedBy: { select: { id: true, name: true, email: true } },
+    escalatedBy: { select: { id: true, name: true, email: true } },
+    resolvedBy: { select: { id: true, name: true, email: true } },
+  } as const;
+
+  app.get("/api/admin/risk-reports", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
+    try {
+      const status = req.query.status as string | undefined;
+      const reports = await prisma.riskReport.findMany({
+        where: status ? { status } : undefined,
+        include: riskReportInclude,
+        orderBy: [{ status: "asc" }, { generatedAt: "desc" }],
+      });
+      res.json({ success: true, data: reports });
+    } catch (error) {
+      console.error("Admin reports error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener reportes" });
+    }
+  });
+
+  app.get("/api/admin/risk-reports/:id", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
+    try {
+      const report = await prisma.riskReport.findUnique({
+        where: { id: req.params.id },
+        include: riskReportInclude,
+      });
+      if (!report) return res.status(404).json({ success: false, error: "Reporte no encontrado" });
+      res.json({ success: true, data: report });
+    } catch (error) {
+      console.error("Admin report detail error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener el reporte" });
+    }
+  });
+
+  app.patch("/api/admin/risk-reports/:id/status", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const { status, reviewerNotes, reason } = req.body as { status?: string; reviewerNotes?: string; reason?: string };
+      const allowedStatuses = new Set(["UNDER_REVIEW", "DISMISSED", "ESCALATED", "ACTION_TAKEN"]);
+
+      if (!status || !allowedStatuses.has(status)) {
+        return res.status(400).json({ success: false, error: "Estado de reporte inválido" });
+      }
+
+      const roles = await getUserSystemRoles(userId);
+      if (status === "ACTION_TAKEN" && !roles.has("SUPER_ADMIN")) {
+        return res.status(403).json({ success: false, error: "Solo super administración puede resolver reportes con acción tomada" });
+      }
+
+      if ((status === "DISMISSED" || status === "ESCALATED" || status === "ACTION_TAKEN") && !(reason || reviewerNotes)?.trim()) {
+        return res.status(400).json({ success: false, error: "Agregá una razón o nota para esta decisión" });
+      }
+
+      const updateData: Record<string, unknown> = {
+        status,
+        reviewerNotes: reviewerNotes?.trim() || reason?.trim() || null,
+        reviewedAt: new Date(),
+        reviewedByUserId: userId,
+      };
+
+      if (status === "ESCALATED") {
+        updateData.escalatedAt = new Date();
+        updateData.escalatedByUserId = userId;
+      }
+
+      if (status === "ACTION_TAKEN") {
+        updateData.resolvedAt = new Date();
+        updateData.resolvedByUserId = userId;
+      }
+
+      const report = await prisma.riskReport.update({
+        where: { id: req.params.id },
+        data: updateData,
+        include: riskReportInclude,
+      });
+
+      await createModerationAuditLog({
+        actorUserId: userId,
+        action: `REPORT_${status}`,
+        targetType: "RISK_REPORT",
+        targetId: report.id,
+        reason: reason?.trim() || reviewerNotes?.trim() || `Reporte marcado como ${status}`,
+        metadata: { providerId: report.providerId, status },
+      });
+
+      res.json({ success: true, data: report });
+    } catch (error) {
+      console.error("Update risk report status error:", error);
+      res.status(500).json({ success: false, error: "Error al actualizar el reporte" });
+    }
+  });
+
+  app.post("/api/admin/risk-reports/:id/escalate", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const { reviewerNotes, reason } = req.body as { reviewerNotes?: string; reason?: string };
+      const note = reviewerNotes?.trim() || reason?.trim();
+      if (!note) {
+        return res.status(400).json({ success: false, error: "Agregá una nota para escalar el reporte" });
+      }
+
+      const report = await prisma.riskReport.update({
+        where: { id: req.params.id },
+        data: {
+          status: "ESCALATED",
+          reviewerNotes: note,
+          reviewedAt: new Date(),
+          reviewedByUserId: userId,
+          escalatedAt: new Date(),
+          escalatedByUserId: userId,
+        },
+        include: riskReportInclude,
+      });
+
+      await createModerationAuditLog({
+        actorUserId: userId,
+        action: "REPORT_ESCALATED",
+        targetType: "RISK_REPORT",
+        targetId: report.id,
+        reason: note,
+        metadata: { providerId: report.providerId, status: "ESCALATED" },
+      });
+
+      res.json({ success: true, data: report });
+    } catch (error) {
+      console.error("Escalate risk report error:", error);
+      res.status(500).json({ success: false, error: "Error al escalar el reporte" });
+    }
+  });
+
+  async function updateProviderModerationStatus(
+    providerId: string,
+    actorUserId: string,
+    status: "ACTIVE" | "SUSPENDED" | "BANNED",
+    reason: string,
+    suspendedUntil?: string | null,
+  ) {
+    const provider = await prisma.provider.findUnique({
+      where: { id: providerId },
+      select: { id: true, status: true, user: { select: { role: true } } },
+    });
+
+    if (!provider) throw new Error("PROVIDER_NOT_FOUND");
+    if (provider.status === "BANNED" && status === "SUSPENDED") throw new Error("INVALID_TRANSITION");
+
+    const updated = await prisma.provider.update({
+      where: { id: providerId },
+      data: {
+        status,
+        statusReason: status === "ACTIVE" ? null : reason,
+        suspendedUntil: status === "SUSPENDED" && suspendedUntil ? new Date(suspendedUntil) : null,
+        statusUpdatedAt: new Date(),
+        statusUpdatedById: actorUserId,
+      },
+    });
+
+    await createModerationAuditLog({
+      actorUserId,
+      action: status === "ACTIVE" ? "PROVIDER_REACTIVATED" : status === "SUSPENDED" ? "PROVIDER_SUSPENDED" : "PROVIDER_BANNED",
+      targetType: "PROVIDER",
+      targetId: providerId,
+      reason,
+      metadata: { previousStatus: provider.status, nextStatus: status, suspendedUntil: suspendedUntil || null },
+    });
+
+    return updated;
+  }
+
+  app.post("/api/admin/providers/:providerId/suspend", authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const { reason, suspendedUntil } = req.body as { reason?: string; suspendedUntil?: string };
+      if (!reason?.trim()) return res.status(400).json({ success: false, error: "La suspensión requiere una razón" });
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "SUSPENDED", reason.trim(), suspendedUntil || null);
+      res.json({ success: true, data: provider });
+    } catch (error) {
+      if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      if ((error as Error).message === "INVALID_TRANSITION") return res.status(409).json({ success: false, error: "Un proveedor baneado no puede pasar a suspendido" });
+      console.error("Suspend provider error:", error);
+      res.status(500).json({ success: false, error: "Error al suspender proveedor" });
+    }
+  });
+
+  app.post("/api/admin/providers/:providerId/ban", authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const { reason } = req.body as { reason?: string };
+      if (!reason?.trim()) return res.status(400).json({ success: false, error: "El baneo requiere una razón" });
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "BANNED", reason.trim());
+      res.json({ success: true, data: provider });
+    } catch (error) {
+      if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      console.error("Ban provider error:", error);
+      res.status(500).json({ success: false, error: "Error al banear proveedor" });
+    }
+  });
+
+  app.post("/api/admin/providers/:providerId/reactivate", authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const { userId } = (req as any).user;
+      const { reason } = req.body as { reason?: string };
+      if (!reason?.trim()) return res.status(400).json({ success: false, error: "La reactivación requiere una razón" });
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "ACTIVE", reason.trim());
+      res.json({ success: true, data: provider });
+    } catch (error) {
+      if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      console.error("Reactivate provider error:", error);
+      res.status(500).json({ success: false, error: "Error al reactivar proveedor" });
+    }
+  });
+
+  app.get("/api/admin/audit-log", authenticate, requireSuperAdmin, async (_req, res) => {
+    try {
+      const logs = await prisma.moderationAuditLog.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        include: { actor: { select: { id: true, name: true, email: true } } },
+      });
+      res.json({ success: true, data: logs });
+    } catch (error) {
+      console.error("Audit log error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener auditoría" });
     }
   });
 

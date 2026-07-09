@@ -12,6 +12,9 @@ export interface ProviderSearchResult {
   shortDescription: string | null;
   priceRange: string | null;
   availability: string;
+  status: string;
+  statusReason: string | null;
+  suspendedUntil: Date | null;
   verified: boolean;
   verificationLevel: string | null;
   formalizationStatus: string;
@@ -74,6 +77,9 @@ export async function searchProviders(params: {
       shortDescription: true,
       priceRange: true,
       availability: true,
+      status: true,
+      statusReason: true,
+      suspendedUntil: true,
       verified: true,
       verificationLevel: true,
       formalizationStatus: true,
@@ -111,6 +117,9 @@ export async function searchProviders(params: {
     shortDescription: p.shortDescription,
     priceRange: p.priceRange,
     availability: p.availability,
+    status: p.status,
+    statusReason: p.statusReason,
+    suspendedUntil: p.suspendedUntil,
     verified: p.verified,
     verificationLevel: p.verificationLevel,
     formalizationStatus: p.formalizationStatus,
@@ -257,6 +266,7 @@ export async function getProviderMapData(city?: string): Promise<Array<{ id: str
       category: true,
       categoryLinks: { include: { category: { select: { name: true } } } },
       availability: true,
+      status: true,
       verified: true,
       shortDescription: true,
       trustScore: { select: { finalScore: true } },
@@ -273,6 +283,7 @@ export async function getProviderMapData(city?: string): Promise<Array<{ id: str
       lng: p.lng!,
       category: primaryCategoryFromLinks(p.categoryLinks) ?? p.category,
       availability: p.availability,
+      status: p.status,
       verified: p.verified,
       trustScore: p.metrics?.trustScore ?? p.trustScore?.finalScore ?? 0,
       shortDescription: p.shortDescription,

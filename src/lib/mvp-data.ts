@@ -88,7 +88,7 @@ export const seedProviders: ProviderProfile[] = Array.from({ length: 50 }, (_, i
     services: serviceByCategory[category], priceRange: (["LOW","MEDIUM","HIGH"] as PriceRange[])[index % 3],
     availability: index % 7 === 0 ? "BUSY" : "AVAILABLE", portfolioImages: [imageByCategory[category]],
     formalizationStatus, verificationLevel, trustScore, responseTimeHrs: 1 + (index % 12), completedRequests,profileCompleteness:100,
-    medals: ["Perfil completo", ...(verificationLevel !== "UNVERIFIED" ? ["Teléfono verificado"] : []), ...(trustScore >= 80 ? ["Confianza alta"] : []), ...(formalizationStatus === "IN_PROGRESS" ? ["En camino a MIPYME"] : []), ...(formalizationStatus === "MIPYME" ? ["MIPYME formal"] : [])],
+    medals: ["Perfil completo", ...(verificationLevel !== "UNVERIFIED" ? ["Teléfono verificado"] : []), ...(completedRequests > 0 ? ["Actividad verificada"] : []), ...(trustScore >= 80 ? ["Confianza alta"] : [])],
     lat: lat + (index % 5) * .004, lng: lng + (index % 4) * .004, contactPreference: "WhatsApp", createdAt:new Date(Date.now()-accountAgeDays*86400000).toISOString(), updatedAt: new Date().toISOString(),
   };
 });
@@ -156,4 +156,4 @@ seedOffers.push(...demoOffers);
 export const CATEGORY_OPTIONS = categories;
 export const priceLabel: Record<PriceRange,string> = { LOW:"Económico", MEDIUM:"Intermedio", HIGH:"Premium", NEGOTIABLE:"Negociable" };
 export const availabilityLabel: Record<Availability,string> = { AVAILABLE:"Disponible", BUSY:"Agenda limitada", UNAVAILABLE:"No disponible" };
-export const formalizationLabel: Record<FormalizationStatus,string> = { INFORMAL:"Informal", IN_PROGRESS:"En camino a MIPYME", MIPYME:"MIPYME formal" };
+export const formalizationLabel: Record<FormalizationStatus,string> = { INFORMAL:"Legacy informal", IN_PROGRESS:"Legacy en progreso", MIPYME:"Legacy completo" };

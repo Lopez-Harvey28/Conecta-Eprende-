@@ -11,13 +11,13 @@ export interface AuthUser {
   roleLabels?: string[];
   requesterProfileId?: string;
   providerProfileId?: string | null;
-  profileState?: "DRAFT" | "ACTIVE" | "SUSPENDED";
+  profileState?: "DRAFT" | "ACTIVE" | "INACTIVE" | "SUSPENDED" | "BANNED" | "TEMPORARILY_RESTRICTED";
   providers: Array<{
     id: string;
     displayName: string;
     slug: string;
     verified: boolean;
-    formalizationStatus: string;
+    formalizationStatus?: string;
     status?: string;
     statusReason?: string | null;
     suspendedUntil?: string | null;

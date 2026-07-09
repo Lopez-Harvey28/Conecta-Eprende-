@@ -4,6 +4,7 @@ import { ChevronDown, Flag, Home, Menu, MessageCircle, Search, Settings, ShieldC
 import { useToastStore } from "../../stores/toast-store";
 import { useAuthStore } from "../../stores/auth-store";
 import { useQuotesStore } from "../../stores/quotes-store";
+import { getRoleLabel } from "../../lib/identity";
 
 const nav = [
   { to: "/", label: "Inicio", icon: Home, end: true },
@@ -78,6 +79,7 @@ export default function RootLayout() {
 
   const displayName = isAuthenticated ? (user?.name || user?.email?.split("@")[0] || "Usuario") : null;
   const initials = displayName ? displayName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "G";
+  const accountRoleLabel = user ? getRoleLabel([user.role, ...(user.roleLabels ?? [])]) : "";
 
   return (
     <div className="app-shell">
@@ -110,7 +112,7 @@ export default function RootLayout() {
                 <span>{initials}</span>
                 <span className="account-copy">
                   <strong>{displayName}</strong>
-                  <small>{user.role === "ADMIN" ? "Administrador" : user.role === "PROVIDER" ? "Proveedor" : "Usuario"}</small>
+                  <small>{accountRoleLabel}</small>
                 </span>
                 <ChevronDown />
               </button>

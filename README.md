@@ -31,7 +31,7 @@ Todas usan la contraseña `Conecta123!`.
 | Admin reviewer | `admin@conecta.test` |
 | Super admin | `superadmin@conecta.test` |
 
-Los roles granulares (`ADMIN_REVIEWER`, `SUPER_ADMIN`) y los estados de proveedor (`ACTIVE`, `SUSPENDED`, `BANNED`) viven en la base de datos. Ver `docs/admin-reviewer-super-admin-statuses.md`.
+Los roles granulares (`REQUESTER`, `PROVIDER`, `ADMIN_REVIEWER`, `SUPER_ADMIN`) y los estados de proveedor (`DRAFT`, `ACTIVE`, `SUSPENDED`, `BANNED`, futuros `INACTIVE`/`TEMPORARILY_RESTRICTED`) estÃ¡n definidos en el contrato de perfiles. Ver `docs/profile-auth-rating-contract.md` y `docs/admin-reviewer-super-admin-statuses.md`.
 
 ## Flujo de demostración
 

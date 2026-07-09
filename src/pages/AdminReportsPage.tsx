@@ -3,6 +3,7 @@ import { AlertTriangle, Ban, CheckCircle2, Clock3, Flag, RotateCcw, ShieldAlert 
 import { adminApi, type AdminRiskReport, type AdminRiskReportStatus, type ModerationAuditLog } from "../api/adminApi";
 import { EmptyState, PageHeader } from "../components/mvp/Ui";
 import { useAuthStore } from "../stores/auth-store";
+import { getProviderStatusLabel } from "../lib/identity";
 
 const reportLabels: Record<AdminRiskReportStatus, string> = {
   OPEN: "Abierto",
@@ -13,12 +14,6 @@ const reportLabels: Record<AdminRiskReportStatus, string> = {
 };
 
 const statusOptions: Array<AdminRiskReportStatus | ""> = ["", "OPEN", "UNDER_REVIEW", "ESCALATED", "DISMISSED", "ACTION_TAKEN"];
-
-function providerStatusLabel(status: string) {
-  if (status === "SUSPENDED") return "Suspendido";
-  if (status === "BANNED") return "Baneado";
-  return "Activo";
-}
 
 export default function AdminReportsPage() {
   const { user } = useAuthStore();
@@ -187,7 +182,7 @@ export default function AdminReportsPage() {
                     <h2>{selected.provider.displayName}</h2>
                   </div>
                   <span className={`provider-status-chip ${selected.provider.status.toLowerCase()}`}>
-                    {providerStatusLabel(selected.provider.status)}
+                    {getProviderStatusLabel(selected.provider.status)}
                   </span>
                 </div>
                 <p className="form-note">

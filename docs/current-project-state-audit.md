@@ -84,7 +84,7 @@ What works:
 - Public provider page exists.
 - Owner can edit profile.
 - Catalog management pages exist.
-- Trust, medals, formalization badge, reviews, and catalog are displayed.
+- Trust, commercial/profile-quality signals, medals, reviews, and catalog are displayed. Legal/MIPYME formalization is not an active MVP signal.
 - Seeded DB providers are real database records.
 
 What is incomplete/risky:
@@ -109,7 +109,7 @@ Current status: Partial, with strong MVP UI.
 What works:
 
 - Provider search route exists.
-- Search page supports text intent, city, category, price, formalization, trust filters.
+- Search page supports text intent, city, category, price and trust filters. Legal/MIPYME formalization is intentionally not an active search filter.
 - Map is Nicaragua-focused and shows touchable provider points with preview panel.
 - Mobile list/map switch exists.
 

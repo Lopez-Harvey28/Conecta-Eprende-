@@ -9,6 +9,7 @@ import { CATEGORY_OPTIONS, CREATIVE_CITIES, priceLabel } from "../lib/mvp-data";
 import { useAuthStore } from "../stores/auth-store";
 import { useProvidersStore } from "../stores/providers-store";
 import { PageHeader, SkeletonRows, TrustBadge, UnavailableForMvpCard, VerificationBadge } from "../components/mvp/Ui";
+import { getRoleLabel } from "../lib/identity";
 
 export function MyProfilePage() {
   const { user, isAuthenticated } = useAuthStore();
@@ -81,7 +82,7 @@ export function MyProfilePage() {
           <p>{user.email}</p>
           <div className="badges">
             <span className="badge"><Smartphone /> Teléfono verificado</span>
-            <span className="badge"><UserRound /> {user.role}</span>
+            <span className="badge"><UserRound /> {getRoleLabel([user.role, ...(user.roleLabels ?? [])])}</span>
           </div>
         </div>
       </section>

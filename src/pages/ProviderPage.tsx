@@ -7,6 +7,7 @@ import {
 import { useProvidersStore } from "../stores/providers-store";
 import { useAuthStore } from "../stores/auth-store";
 import { EmptyState, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
+import { getProviderStatusLabel } from "../lib/identity";
 
 const availabilityLabelMap: Record<string, string> = {
   DISPONIBLE: "Disponible",
@@ -154,7 +155,7 @@ export default function ProviderPage() {
         <main>
           {isRestrictedProvider && (
             <section className={`provider-status-banner ${providerStatus.toLowerCase()}`}>
-              <h2>{providerStatus === "BANNED" ? "Perfil proveedor baneado" : "Perfil proveedor suspendido"}</h2>
+              <h2>Perfil proveedor {getProviderStatusLabel(providerStatus).toLowerCase()}</h2>
               <p>
                 {providerStatus === "BANNED"
                   ? "Este perfil no puede recibir nuevas solicitudes."

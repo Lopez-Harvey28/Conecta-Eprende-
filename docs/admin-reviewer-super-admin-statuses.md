@@ -4,7 +4,7 @@
 
 - `User.role` se mantiene para compatibilidad con el login y rutas existentes.
 - Los permisos granulares se guardan en `RoleAssignment`, permitiendo que una cuenta tenga roles como `REQUESTER`, `PROVIDER`, `ADMIN_REVIEWER` o `SUPER_ADMIN`.
-- Las sanciones del MVP se aplican a nivel de `Provider.status`: `ACTIVE`, `SUSPENDED` o `BANNED`.
+- Las sanciones del MVP se aplican a nivel de `Provider.status`: `ACTIVE`, `SUSPENDED` o `BANNED`. `DRAFT`, `INACTIVE` y `TEMPORARILY_RESTRICTED` quedan definidos como estados de ciclo de vida/futuro cuando existan controles completos.
 - Las acciones sensibles se registran en `ModerationAuditLog`.
 
 ## Permisos
@@ -16,8 +16,11 @@
 ## Status de proveedor
 
 - `ACTIVE`: recibe solicitudes normalmente.
+- `DRAFT`: no debe mostrarse como proveedor pÃºblico normal.
+- `INACTIVE`: reservado para pausar operaciÃ³n sin sanciÃ³n.
 - `SUSPENDED`: aparece con banner y no puede recibir nuevas solicitudes.
 - `BANNED`: aparece con banner fuerte y no puede recibir nuevas solicitudes.
+- `TEMPORARILY_RESTRICTED`: reservado para restricciones con razÃ³n y fecha de fin.
 
 El backend rechaza `POST /api/quotes` cuando el proveedor está `SUSPENDED` o `BANNED`.
 

@@ -19,6 +19,30 @@ Serializable role values:
 
 Normal users must not self-upgrade to admin roles. For the MVP, the default bootstrap session uses `user-provider` as the admin-capable account. Later login middleware should return these roles from `/api/auth/session` or `/me`.
 
+## Profile definitions
+
+- Requester profile: the default account context for searching providers, creating quote requests, continuing conversations, and writing verified reviews after completed work.
+- Provider profile: a business/commercial identity attached to a user account. It owns public profile copy, location, category, catalog, availability, verified reviews, trust signals and request/chat CTAs.
+- Admin reviewer profile: an internal moderation role for viewing risk reports, adding safe review notes, dismissing or escalating cases. It must not expose destructive provider sanctions.
+- Super admin profile: the highest internal moderation role. It can apply final provider status actions such as suspend, ban or reactivate when backend permissions allow it.
+
+Admin reviewer and super admin are roles on the account, not public profiles.
+
+## Profile and account statuses
+
+Provider profile statuses used or reserved by the MVP contract:
+
+- `DRAFT`: editable provider profile that should not be treated as a normal public provider.
+- `ACTIVE`: visible and able to receive requests.
+- `INACTIVE`: intentionally not operating, reserved for future lifecycle controls.
+- `SUSPENDED`: visible with restriction messaging, cannot receive new requests.
+- `BANNED`: visible with stronger restriction messaging, cannot receive new requests.
+- `TEMPORARILY_RESTRICTED`: reserved for a suspension-like state with reason and end date.
+
+Account-level `SUSPENDED` and `BANNED` behavior remains future backend work. Current enforcement is provider-level.
+
+Legal/MIPYME formalization is not an active profile status, trust signal, badge or search filter. Legacy fields may remain for compatibility but must not be shown as supported MVP verification.
+
 ## Provider can also request providers
 
 A provider profile owner can still send requests to other providers. The only blocked case is sending a request to their own provider profile.

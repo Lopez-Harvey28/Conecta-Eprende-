@@ -37,7 +37,6 @@ export default function EditPublicProfilePage() {
     serviceArea: "Managua",
     priceRange: "",
     availability: "DISPONIBLE",
-    formalizationStatus: "INFORMAL",
     contactPreference: "Mensajes de la plataforma",
     avatarUrl: "",
     coverImageUrl: "",
@@ -57,7 +56,6 @@ export default function EditPublicProfilePage() {
         serviceArea: provider.serviceRadius || provider.city || "",
         priceRange: provider.priceRange || "",
         availability: provider.availability || "",
-        formalizationStatus: provider.formalizationStatus || "",
         contactPreference: "Mensajes de la plataforma",
         avatarUrl: provider.logoUrl || "",
         coverImageUrl: provider.coverImageUrl || photos[0]?.imageUrl || "",
@@ -84,7 +82,6 @@ export default function EditPublicProfilePage() {
       serviceRadius: form.serviceArea,
       priceRange: form.priceRange,
       availability: form.availability,
-      formalizationStatus: form.formalizationStatus,
       logoUrl: form.avatarUrl.trim() || undefined,
       coverImageUrl: form.coverImageUrl.trim() || undefined,
       responseTimeHrs: Math.max(1, Number(form.responseTimeHrs) || 1),
@@ -99,12 +96,6 @@ export default function EditPublicProfilePage() {
           BAJO_PEDIDO: "BUSY",
           NO_DISPONIBLE_TEMPORALMENTE: "UNAVAILABLE",
         };
-        const formalizationMap: Record<string, "INFORMAL" | "IN_PROGRESS" | "MIPYME"> = {
-          INFORMAL: "INFORMAL",
-          EN_PROCESO: "IN_PROGRESS",
-          MIPYME_FORMAL: "MIPYME",
-          DOCUMENTOS_PENDIENTES: "IN_PROGRESS",
-        };
         const ok = updateDemoProvider(provider.id, {
           publicName: payload.displayName,
           tagline: payload.shortDescription,
@@ -114,7 +105,6 @@ export default function EditPublicProfilePage() {
           serviceArea: [payload.serviceRadius as any],
           priceRange: payload.priceRange as any,
           availability: availabilityMap[payload.availability] ?? "AVAILABLE",
-          formalizationStatus: formalizationMap[payload.formalizationStatus] ?? "INFORMAL",
           avatarUrl: form.avatarUrl.trim() || undefined,
           coverImageUrl: form.coverImageUrl.trim() || undefined,
           responseTimeHrs: payload.responseTimeHrs,
@@ -148,13 +138,6 @@ export default function EditPublicProfilePage() {
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const formalizationOptions: Record<string, string> = {
-    INFORMAL: "Informal",
-    EN_PROCESO: "En proceso",
-    MIPYME_FORMAL: "MIPYME formal",
-    DOCUMENTOS_PENDIENTES: "Documentos pendientes",
   };
 
   const availabilityOptions: Record<string, string> = {
@@ -241,18 +224,6 @@ export default function EditPublicProfilePage() {
             >
               <option value="">Sin definir</option>
               {Object.entries(availabilityOptions).map(([value, label]) => (
-                <option value={value} key={value}>{label}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Formalización
-            <select
-              value={form.formalizationStatus}
-              onChange={event => setForm({ ...form, formalizationStatus: event.target.value })}
-            >
-              <option value="">Sin definir</option>
-              {Object.entries(formalizationOptions).map(([value, label]) => (
                 <option value={value} key={value}>{label}</option>
               ))}
             </select>

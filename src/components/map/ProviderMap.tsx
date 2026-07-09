@@ -65,7 +65,6 @@ export interface MapProvider {
   availability?: string;
   responseTimeHrs?: number;
   verified?: boolean;
-  formalizationStatus?: string;
   photos?: string[];
   reviews?: Array<{ rating: number }>;
 }
@@ -208,9 +207,9 @@ function RichPopup({ provider }: { provider: MapProvider }) {
           </div>
           <div className="popup-stat">
             <div className="popup-stat-value" style={{ color: meta.color, fontSize: 11 }}>
-              {(provider.formalizationStatus || "INFORMAL").replace("_", " ").slice(0, 10)}
+              {provider.score && provider.score >= 80 ? "Sólido" : "Activo"}
             </div>
-            <div className="popup-stat-label">Estado</div>
+            <div className="popup-stat-label">Perfil</div>
           </div>
         </div>
         <a

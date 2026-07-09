@@ -5,20 +5,13 @@ import MvpProviderMap, { type SearchMapProvider } from "../components/map/MvpPro
 import { CATEGORY_OPTIONS, CREATIVE_CITIES, type CreativeCity, type PriceRange } from "../lib/mvp-data";
 import { useProvidersStore, type ProviderSearchResult } from "../stores/providers-store";
 import { useAuthStore } from "../stores/auth-store";
-import { AvailabilityBadge, EmptyState, FormalizationBadge, PriceBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
+import { AvailabilityBadge, EmptyState, PriceBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
 
 const availabilityLabel: Record<string, string> = {
   DISPONIBLE: "Disponible",
   OCUPADO: "Ocupado",
   BAJO_PEDIDO: "Bajo pedido",
   NO_DISPONIBLE_TEMPORALMENTE: "No disponible temporalmente",
-};
-
-const formalizationLabel: Record<string, string> = {
-  INFORMAL: "Informal",
-  EN_PROCESO: "En proceso",
-  MIPYME_FORMAL: "MIPYME formal",
-  DOCUMENTOS_PENDIENTES: "Documentos pendientes",
 };
 
 const priceLabel: Record<string, string> = {
@@ -72,7 +65,6 @@ export default function SearchPage() {
   const [city, setCity] = useState(params.get("city") || "");
   const [category, setCategory] = useState("");
   const [price, setPrice] = useState("");
-  const [formal, setFormal] = useState("");
   const [trust, setTrust] = useState(0);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -97,7 +89,6 @@ export default function SearchPage() {
           (!cityTarget || provider.city === cityTarget) &&
           (!categoryTarget || norm(provider.category).includes(norm(categoryTarget))) &&
           (!price || provider.priceRange === price) &&
-          (!formal || provider.formalizationStatus === formal) &&
           provider.trustScore >= trust;
 
         const proximity = cityTarget ? (provider.city === cityTarget ? 100 : 25) : 70;
@@ -114,7 +105,7 @@ export default function SearchPage() {
       })
       .filter((provider: any) => provider.match)
       .sort((a: any, b: any) => b.rank - a.rank);
-  }, [providers, query, city, category, price, formal, trust, intent]);
+  }, [providers, query, city, category, price, trust, intent]);
 
   const mapProviders = useMemo<SearchMapProvider[]>(() => {
     return results.map((provider: any) => ({
@@ -131,7 +122,7 @@ export default function SearchPage() {
       suspendedUntil: provider.suspendedUntil,
       priceLabel: priceLabel[provider.priceRange] || provider.priceRange || "",
       verificationLabel: { UNVERIFIED: "Sin verificar", PHONE: "Teléfono verificado", COMPLETE: "Perfil verificado" }[provider.verificationLevel] || provider.verificationLevel || "Sin verificar",
-      formalizationLabel: formalizationLabel[provider.formalizationStatus] || provider.formalizationStatus || "",
+      profileSignalLabel: provider.trustScore >= 80 ? "Perfil comercial sólido" : "Perfil en construcción",
       description: provider.shortDescription || "",
       image: provider.photos?.[0] || "",
       isOwnProfile: provider.id === ownedProviderId,
@@ -183,12 +174,6 @@ export default function SearchPage() {
             <select value={price} onChange={event => setPrice(event.target.value)}>
               <option value="">Cualquier rango</option>
               {Object.entries(priceLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
-          <label>Formalización
-            <select value={formal} onChange={event => setFormal(event.target.value)}>
-              <option value="">Cualquier estado</option>
-              {Object.entries(formalizationLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
           <label>Confianza mínima <strong>{trust}</strong>
@@ -248,7 +233,6 @@ export default function SearchPage() {
                       {provider.priceRange && <PriceBadge value={provider.priceRange as any} />}
                       <AvailabilityBadge value={provider.availability as any} />
                       <VerificationBadge level={provider.verificationLevel as any} />
-                      <FormalizationBadge status={provider.formalizationStatus as any} />
                     </div>
                     <div className="recommendation">
                       <Sparkles /> Recomendado porque combina {provider.trustScore >= 80 ? "confianza alta" : "experiencia local"} y {availabilityLabel[provider.availability]?.toLowerCase() || "disponibilidad"}.

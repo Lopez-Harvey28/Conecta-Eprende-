@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { ArrowRight, BadgeCheck, Building2, MapPin, Search, ShieldCheck } from "lucide-react";
+import { ArrowRight, BadgeCheck, Building2, MapPin, MessageCircle, Search, ShieldCheck } from "lucide-react";
 
 const examples = ["Empaques ecológicos en León", "Diseño de logos en Managua", "Café orgánico en Matagalpa", "Camisetas bordadas en Masaya"];
 export default function HomePage() {
@@ -15,6 +15,6 @@ export default function HomePage() {
       </div>
       <aside className="home-proof"><div className="network-mark"><Building2/></div><p className="proof-kicker">Red local, decisiones con evidencia</p><h2>Conexiones más claras desde la primera búsqueda.</h2><dl><div><dt>50</dt><dd>proveedores de demostración</dd></div><div><dt>10</dt><dd>ciudades creativas</dd></div><div><dt>1</dt><dd>flujo completo de confianza</dd></div></dl></aside>
     </section>
-    <section className="trust-strip" aria-label="Cómo construimos confianza"><div><BadgeCheck/><span><strong>Perfiles verificados</strong>Sabés qué información fue confirmada.</span></div><div><ShieldCheck/><span><strong>Reseñas con respaldo</strong>Solo después de un trabajo confirmado por ambas partes.</span></div><div><Building2/><span><strong>Ruta de formalización</strong>Progreso visible, sin prometer integraciones inexistentes.</span></div></section>
+    <section className="trust-strip" aria-label="Cómo construimos confianza"><div><BadgeCheck/><span><strong>Perfiles verificados</strong>Sabés qué información fue confirmada.</span></div><div><ShieldCheck/><span><strong>Reseñas con respaldo</strong>Solo después de un trabajo confirmado por ambas partes.</span></div><div><MessageCircle/><span><strong>Solicitudes dentro de la app</strong>Chat, cotización y cierre quedan conectados al historial.</span></div></section>
   </div>;
 }

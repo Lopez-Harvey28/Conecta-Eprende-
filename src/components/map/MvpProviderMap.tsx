@@ -5,7 +5,6 @@ import L from "leaflet";
 import {
   ArrowRight,
   BadgeCheck,
-  BriefcaseBusiness,
   LoaderCircle,
   MapPin,
   MessageCircle,
@@ -28,7 +27,7 @@ export interface SearchMapProvider {
   suspendedUntil?: string | null;
   priceLabel: string;
   verificationLabel: string;
-  formalizationLabel: string;
+  profileSignalLabel: string;
   description: string;
   image: string;
   isOwnProfile?: boolean;
@@ -303,8 +302,8 @@ export default function MvpProviderMap({
                 {selectedProvider.verificationLabel}
               </span>
               <span>
-                <BriefcaseBusiness />
-                {selectedProvider.formalizationLabel}
+                <ShieldCheck />
+                {selectedProvider.profileSignalLabel}
               </span>
             </div>
             <div className="map-preview-actions">

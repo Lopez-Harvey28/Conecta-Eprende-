@@ -19,7 +19,7 @@ Inter o Segoe UI con escala compacta de producto. Títulos usan peso y contraste
 
 ## Components
 
-Botones de 42 px mínimos, radio de 10 px y foco visible. Badges separan confianza, verificación y formalización. Las superficies se agrupan solo cuando representan una unidad funcional. Estados vacíos explican el siguiente paso; limitaciones del MVP siempre incluyen una razón.
+Botones de 42 px mínimos, radio de 10 px y foco visible. Badges separan confianza, verificación, estado de perfil y disponibilidad. Las superficies se agrupan solo cuando representan una unidad funcional. Estados vacíos explican el siguiente paso; limitaciones del MVP siempre incluyen una razón.
 
 ## Layout and Motion
 

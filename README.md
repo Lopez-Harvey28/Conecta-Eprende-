@@ -36,7 +36,7 @@ Los roles granulares (`ADMIN_REVIEWER`, `SUPER_ADMIN`) y los estados de proveedo
 ## Flujo de demostración
 
 1. Buscar `Necesito empaques ecológicos en León que sean baratos`.
-2. Abrir un perfil y revisar verificación, confianza, medallas y formalización.
+2. Abrir un perfil y revisar verificación, confianza, medallas, catálogo y señales comerciales soportadas por el MVP.
 3. Crear una solicitud de cotización.
 4. Responder y confirmar el trabajo desde ambas partes.
 5. Publicar una reseña desbloqueada por la finalización bilateral.

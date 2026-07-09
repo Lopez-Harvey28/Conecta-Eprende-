@@ -1,6 +1,6 @@
 import React, { useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { BriefcaseBusiness, ChevronDown, Flag, Home, Menu, MessageCircle, Search, Settings, ShieldCheck, Store, UserRound, X, LogIn } from "lucide-react";
+import { ChevronDown, Flag, Home, Menu, MessageCircle, Search, Settings, ShieldCheck, Store, UserRound, X, LogIn } from "lucide-react";
 import { useToastStore } from "../../stores/toast-store";
 import { useAuthStore } from "../../stores/auth-store";
 import { useQuotesStore } from "../../stores/quotes-store";
@@ -9,7 +9,6 @@ const nav = [
   { to: "/", label: "Inicio", icon: Home, end: true },
   { to: "/search", label: "Buscar", icon: Search },
   { to: "/requests", label: "Conversaciones", icon: MessageCircle },
-  { to: "/formalization", label: "Formalización", icon: BriefcaseBusiness },
   { to: "/me", label: "Mi perfil", icon: UserRound },
 ];
 

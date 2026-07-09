@@ -1,14 +1,14 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Award, BadgeCheck, BriefcaseBusiness, Check, CheckCircle2, ChevronRight,
+  Award, BadgeCheck, Check, CheckCircle2, ChevronRight,
   Clock3, ExternalLink, FileText, Landmark, LockKeyhole, Save, ShieldCheck,
   Smartphone, UserRound,
 } from "lucide-react";
 import { CATEGORY_OPTIONS, CREATIVE_CITIES, priceLabel } from "../lib/mvp-data";
 import { useAuthStore } from "../stores/auth-store";
 import { useProvidersStore } from "../stores/providers-store";
-import { FormalizationBadge, PageHeader, SkeletonRows, TrustBadge, UnavailableForMvpCard, VerificationBadge } from "../components/mvp/Ui";
+import { PageHeader, SkeletonRows, TrustBadge, UnavailableForMvpCard, VerificationBadge } from "../components/mvp/Ui";
 
 export function MyProfilePage() {
   const { user, isAuthenticated } = useAuthStore();
@@ -100,7 +100,7 @@ export function MyProfilePage() {
               <div className="badges">
                 <TrustBadge score={trustScore} />
                 <VerificationBadge level={(provider.verificationLevel as any) || "UNVERIFIED"} />
-                <FormalizationBadge status={(provider.formalizationStatus as any) || "INFORMAL"} />
+                <span className="badge"><ShieldCheck /> Perfil comercial</span>
               </div>
               <div className="card-actions">
                 <Link className="button secondary" to={`/providers/${provider.id}`}>
@@ -128,10 +128,9 @@ export function MyProfilePage() {
             </div>
           </section>
           <section className="content-section">
-            <h2><BriefcaseBusiness /> Formalización</h2>
-            <FormalizationBadge status={(provider.formalizationStatus as any) || "INFORMAL"} />
-            <p>Seguí tu checklist y prepará documentos para avanzar con más claridad.</p>
-            <Link className="button secondary full" to="/formalization">Abrir guía</Link>
+            <h2><ShieldCheck /> Calidad del perfil</h2>
+            <p>Completá descripción, imágenes, disponibilidad y catálogo para que clientes puedan evaluar mejor tu oferta.</p>
+            <Link className="button secondary full" to="/me/profile/edit">Mejorar perfil</Link>
           </section>
         </aside>
       </div>
@@ -160,7 +159,6 @@ export function EditProfilePage() {
     description: "",
     priceRange: "",
     availability: "",
-    formalizationStatus: "",
     portfolioText: "",
   });
 
@@ -173,7 +171,6 @@ export function EditProfilePage() {
         description: provider.aboutDescription || provider.shortDescription || "",
         priceRange: provider.priceRange || "",
         availability: provider.availability || "",
-        formalizationStatus: provider.formalizationStatus || "",
         portfolioText: photos.map((p: any) => p.imageUrl).join("\n"),
       });
     }
@@ -205,7 +202,6 @@ export function EditProfilePage() {
           aboutDescription: form.description.trim(),
           priceRange: form.priceRange,
           availability: form.availability,
-          formalizationStatus: form.formalizationStatus,
         }),
       });
       const data = await res.json();
@@ -219,13 +215,6 @@ export function EditProfilePage() {
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const formalizationOptions: Record<string, string> = {
-    INFORMAL: "Informal",
-    EN_PROCESO: "En proceso",
-    MIPYME_FORMAL: "MIPYME formal",
-    DOCUMENTOS_PENDIENTES: "Documentos pendientes",
   };
 
   const availabilityOptions: Record<string, string> = {
@@ -320,18 +309,6 @@ export function EditProfilePage() {
               ))}
             </select>
           </label>
-          <label>
-            Formalización
-            <select
-              value={form.formalizationStatus}
-              onChange={e => setForm({ ...form, formalizationStatus: e.target.value })}
-            >
-              <option value="">Sin definir</option>
-              {Object.entries(formalizationOptions).map(([v, l]) => (
-                <option value={v} key={v}>{l}</option>
-              ))}
-            </select>
-          </label>
         </div>
         <label>
           URLs de imágenes de portafolio
@@ -359,8 +336,8 @@ const medalRules = [
   ["Teléfono verificado", "El número de contacto fue confirmado."],
   ["Responde rápido", "Respondió al menos cinco solicitudes."],
   ["Trabajo confirmado", "Completó tres solicitudes con confirmación bilateral."],
-  ["En camino a MIPYME", "Marcó su formalización como en proceso."],
-  ["MIPYME formal", "Declaró y documentó su estado MIPYME."],
+  ["Perfil comercial completo", "Publicó información suficiente para evaluar su oferta."],
+  ["Catálogo activo", "Mantiene productos o servicios disponibles para cotizar."],
   ["Confianza alta", "Alcanzó 80 puntos o más."],
 ];
 

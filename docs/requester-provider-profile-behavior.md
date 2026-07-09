@@ -8,7 +8,7 @@
 
 ## Provider account (`/me`)
 
-- Shows the same account identity block plus provider management: public profile summary, completeness checklist, catalog metrics, request activity, trust and formalization cards.
+- Shows the same account identity block plus provider management: public profile summary, completeness checklist, catalog metrics, request activity, trust and profile-quality cards.
 - Provider request activity is loaded from `/api/quotes?providerId=<owned-provider-id>` and requires ownership of that provider.
 
 ## Public provider and quote flow
@@ -21,3 +21,9 @@
 
 - The demo profile switcher only renders in development when `VITE_ENABLE_DEMO_PROFILE_SWITCHER=true`.
 - The panel is collapsible to avoid covering the interactive provider map during manual tests.
+
+## Formalization scope
+
+- Legal formalization/MIPYME status is not an active MVP feature.
+- Legacy fields can remain in persisted/demo data for compatibility, but primary navigation, search filters, public provider profiles, and profile-editing forms should not expose them as supported verification.
+- `/formalization` is a roadmap-only explainer, not a transactional or verification flow.

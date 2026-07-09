@@ -10,7 +10,7 @@
 ## Current backend structure
 
 - Express is mounted from `server.ts`, with Vite middleware in development and static serving in production.
-- Current API routes are lightweight in-memory endpoints for providers, quotes, AI helpers and formalization.
+- Current API routes are lightweight in-memory endpoints for providers, quotes and AI helpers. Legacy formalization endpoints/data may exist for compatibility but are not part of the active MVP surface.
 - No destructive database migration is applied. Prisma exists in the repo, but this MVP still uses memory/local state for most flows.
 
 ## Existing login/auth status

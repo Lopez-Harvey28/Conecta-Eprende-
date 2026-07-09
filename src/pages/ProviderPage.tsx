@@ -1,26 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Award, BadgeCheck, Bookmark, BriefcaseBusiness, CalendarCheck, Clock3,
+  ArrowLeft, Award, BadgeCheck, Bookmark, CalendarCheck, Clock3,
   ExternalLink, Flag, MapPin, MessageCircle, Package, ShieldCheck, Star, X,
 } from "lucide-react";
 import { useProvidersStore } from "../stores/providers-store";
 import { useAuthStore } from "../stores/auth-store";
-import { availabilityLabel, formalizationLabel, priceLabel } from "../lib/mvp-data";
-import { EmptyState, FormalizationBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
+import { EmptyState, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
 
 const availabilityLabelMap: Record<string, string> = {
   DISPONIBLE: "Disponible",
   OCUPADO: "Ocupado",
   BAJO_PEDIDO: "Bajo pedido",
   NO_DISPONIBLE_TEMPORALMENTE: "No disponible temporalmente",
-};
-
-const formalizationLabelMap: Record<string, string> = {
-  INFORMAL: "Informal",
-  EN_PROCESO: "En proceso",
-  MIPYME_FORMAL: "MIPYME formal",
-  DOCUMENTOS_PENDIENTES: "Documentos pendientes",
 };
 
 const priceLabelMap: Record<string, string> = {
@@ -109,6 +101,8 @@ export default function ProviderPage() {
   const isOwnProfile = (user?.providers?.[0]?.id || user?.providerProfileId) === provider.id;
   const providerStatus = provider.status || "ACTIVE";
   const isRestrictedProvider = providerStatus === "SUSPENDED" || providerStatus === "BANNED";
+  const activeOfferCount = activeItems.length;
+  const publicProfileSignal = trustScore >= 80 && activeOfferCount > 0 ? "Perfil comercial sólido" : "Perfil en construcción";
 
   return (
     <div className="provider-page">
@@ -133,7 +127,7 @@ export default function ProviderPage() {
           <div className="badges">
             <TrustBadge score={trustScore} />
             <VerificationBadge level={(provider.verificationLevel as any) || "UNVERIFIED"} />
-            <FormalizationBadge status={(provider.formalizationStatus as any) || "INFORMAL"} />
+            <span className="badge"><ShieldCheck />{publicProfileSignal}</span>
           </div>
           <div className="provider-primary-actions">
             {isRestrictedProvider ? (
@@ -336,16 +330,12 @@ export default function ProviderPage() {
           </section>
 
           <section>
-            <h2><BriefcaseBusiness /> Formalización</h2>
-            <FormalizationBadge status={(provider.formalizationStatus as any) || "INFORMAL"} />
+            <h2><ShieldCheck /> Señales del perfil</h2>
+            <span className="badge"><ShieldCheck />{publicProfileSignal}</span>
             <p>
-              {provider.formalizationStatus === "MIPYME_FORMAL"
-                ? "Este negocio muestra estado MIPYME formal."
-                : provider.formalizationStatus === "EN_PROCESO"
-                ? "Está organizando su información para avanzar en formalización."
-                : "Puede usar la guía para preparar su proceso de formalización."}
+              Esta señal combina información pública del perfil, catálogo activo, verificación y actividad confirmada dentro de la app.
             </p>
-            <Link className="text-link" to="/formalization">Ver guía de formalización</Link>
+            <Link className="text-link" to="/trust">Ver reglas de confianza</Link>
           </section>
 
           <section>

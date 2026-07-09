@@ -87,7 +87,7 @@ export default function App() {
             }
           />
 
-          {/* Protected: /formalization */}
+          {/* Legacy roadmap-only route: not part of primary MVP navigation */}
           <Route
             path="/formalization"
             element={
@@ -194,7 +194,7 @@ export default function App() {
           {/* Redirects */}
           <Route path="/dashboard/perfil" element={<Navigate to="/me" replace />} />
           <Route path="/dashboard/cotizaciones" element={<Navigate to="/requests" replace />} />
-          <Route path="/dashboard/formalizacion" element={<Navigate to="/formalization" replace />} />
+          <Route path="/dashboard/formalizacion" element={<Navigate to="/me" replace />} />
 
           {/* 404 */}
           <Route path="*" element={<Navigate to="/" replace />} />

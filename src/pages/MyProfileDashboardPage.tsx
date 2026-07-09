@@ -2,7 +2,6 @@ import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import {
   Award,
-  BriefcaseBusiness,
   Check,
   Circle,
   ExternalLink,
@@ -19,7 +18,6 @@ import { useProvidersStore } from "../stores/providers-store";
 import { useQuotesStore, type QuoteThread } from "../stores/quotes-store";
 import {
   EmptyState,
-  FormalizationBadge,
   PageHeader,
   RequestStatusBadge,
   SkeletonRows,
@@ -267,7 +265,9 @@ export default function MyProfileDashboardPage() {
               <div className="badges">
                 <TrustBadge score={trustScore} />
                 <VerificationBadge level={provider.verificationLevel} />
-                <FormalizationBadge status={provider.formalizationStatus} />
+                <span className="badge">
+                  <ShieldCheck /> {completeness >= 80 ? "Perfil comercial sólido" : "Perfil en construcción"}
+                </span>
               </div>
             </div>
           </section>
@@ -346,10 +346,10 @@ export default function MyProfileDashboardPage() {
           </section>
 
           <section className="content-section">
-            <h2><BriefcaseBusiness /> Formalización</h2>
-            <FormalizationBadge status={provider.formalizationStatus} />
-            <p>Continuá la guía para organizar tus documentos y próximos pasos.</p>
-            <Link className="button secondary full" to="/formalization">Continuar guía</Link>
+            <h2><ShieldCheck /> Calidad del perfil</h2>
+            <span className="badge"><ShieldCheck /> {completeness}% completo</span>
+            <p>Completá descripción, catálogo, imágenes y disponibilidad para que el perfil sea más claro en búsqueda.</p>
+            <Link className="button secondary full" to="/me/profile/edit">Mejorar perfil público</Link>
           </section>
         </aside>
       </div>

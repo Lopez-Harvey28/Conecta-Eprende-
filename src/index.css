@@ -43,6 +43,28 @@
 @media(max-width:560px){.provider-result{grid-template-columns:1fr}.provider-result>img{height:150px}.provider-title{flex-direction:column-reverse}.card-actions{flex-direction:column}.card-actions .button{width:100%}.content-page,.narrow-page{padding:26px 16px}.request-row{grid-template-columns:1fr}.request-icon{display:none}.request-row p{max-width:80vw}.reply-box{flex-direction:column}.message{max-width:92%}.settings-list section{align-items:flex-start;gap:14px;flex-direction:column}.report-actions{flex-direction:column}.report-actions .button{width:100%}.dialog{padding:20px}.provider-cover{padding:32px 18px}.provider-cover h1{font-size:2.5rem}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important}}
 
+/* Chat message hardening */
+.chat-message,
+.system-message,
+.message-author,
+.message-author strong,
+.chat-message p,
+.system-message p{
+  min-width:0;
+  max-width:100%;
+}
+
+.chat-message p,
+.system-message p{
+  white-space:pre-wrap;
+  overflow-wrap:anywhere;
+  word-break:break-word;
+}
+
+.chat-message{
+  overflow:hidden;
+}
+
 /* ============================================
    BRAND THEME OVERRIDES
    Palette:

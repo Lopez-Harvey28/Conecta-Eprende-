@@ -25,6 +25,7 @@ export default function AdminReportsPage() {
   const roles = new Set([user?.role, ...(user?.roleLabels ?? [])].filter(Boolean));
   const canReview = roles.has("ADMIN") || roles.has("ADMIN_REVIEWER") || roles.has("SUPER_ADMIN");
   const isSuperAdmin = roles.has("SUPER_ADMIN");
+  const isDemoAdminSession = !!user && (user.email.endsWith("@demo.test") || user.id.includes("_demo"));
 
   const [filter, setFilter] = useState<AdminRiskReportStatus | "">("OPEN");
   const [reports, setReports] = useState<AdminRiskReport[]>([]);
@@ -40,6 +41,14 @@ export default function AdminReportsPage() {
 
   async function load() {
     if (!canReview) return;
+    if (isDemoAdminSession) {
+      setReports([]);
+      setAuditLog([]);
+      setSelectedId(null);
+      setLoading(false);
+      setError(null);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
@@ -59,7 +68,7 @@ export default function AdminReportsPage() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter, canReview, isSuperAdmin]);
+  }, [filter, canReview, isSuperAdmin, isDemoAdminSession]);
 
   async function updateReport(status: AdminRiskReportStatus) {
     if (!selected) return;
@@ -133,7 +142,21 @@ export default function AdminReportsPage() {
 
       {error && <p className="field-error" role="alert">{error}</p>}
 
-      {loading ? (
+      {isDemoAdminSession && (
+        <section className="admin-demo-notice">
+          <strong>El perfil del panel dev es solo visual.</strong>
+          <p>
+            Para probar reportes, sanciones y auditoría con permisos reales, iniciá sesión con
+            <code>superadmin@conecta.test</code> o <code>admin@conecta.test</code>. Contraseña: <code>Conecta123!</code>.
+          </p>
+        </section>
+      )}
+
+      {isDemoAdminSession ? (
+        <EmptyState icon={<ShieldAlert />} title="Usá una cuenta admin real para probar este módulo">
+          El backend no acepta permisos simulados del dev switcher para acciones administrativas.
+        </EmptyState>
+      ) : loading ? (
         <EmptyState title="Cargando reportes">Consultando reportes desde la base de datos.</EmptyState>
       ) : reports.length === 0 ? (
         <EmptyState icon={<Flag />} title="No hay reportes en este estado">

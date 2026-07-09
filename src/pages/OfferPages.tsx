@@ -405,6 +405,7 @@ export function OfferDetailPage() {
   const photos = currentProvider?.photos || [];
   const portfolioImages = photos.map((p: any) => p.imageUrl).filter(Boolean);
   const isOwnOffer = (user?.providers?.[0]?.id || user?.providerProfileId) === provider.id;
+  const isRestrictedProvider = provider.status === "SUSPENDED" || provider.status === "BANNED";
 
   const priceDisplay = () => {
     if (offer.priceMin && offer.priceMax) {
@@ -452,7 +453,11 @@ export function OfferDetailPage() {
             <TrustBadge score={provider.trustScore?.finalScore ?? 0} />
           </section>
           <div className="card-actions">
-            {isOwnOffer ? (
+            {isRestrictedProvider ? (
+              <span className="button secondary disabled">
+                {provider.status === "BANNED" ? "Proveedor baneado" : "Proveedor suspendido"}
+              </span>
+            ) : isOwnOffer ? (
               <Link className="button primary" to={`/me/products/${offer.id}/edit`}>
                 <Edit3 /> Editar oferta
               </Link>

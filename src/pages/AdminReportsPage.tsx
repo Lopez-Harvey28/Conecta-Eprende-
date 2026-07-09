@@ -1,15 +1,235 @@
-import { useState } from "react";
-import { AlertTriangle, CheckCircle2, Flag, ShieldAlert, XCircle } from "lucide-react";
-import { useMvpStore } from "../stores/mvp-store";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Ban, CheckCircle2, Clock3, Flag, RotateCcw, ShieldAlert } from "lucide-react";
+import { adminApi, type AdminRiskReport, type AdminRiskReportStatus, type ModerationAuditLog } from "../api/adminApi";
 import { EmptyState, PageHeader } from "../components/mvp/Ui";
-import type { Report } from "../lib/mvp-data";
-import { useAuthenticatedUser } from "../hooks/use-current-user";
+import { useAuthStore } from "../stores/auth-store";
 
-const reportLabels:Record<Report["status"],string>={PENDING:"Pendiente",REVIEWED:"Revisado",DISMISSED:"Descartado",ESCALATED:"Escalado"};
+const reportLabels: Record<AdminRiskReportStatus, string> = {
+  OPEN: "Abierto",
+  UNDER_REVIEW: "En revisión",
+  DISMISSED: "Descartado",
+  ESCALATED: "Escalado",
+  ACTION_TAKEN: "Acción tomada",
+};
 
-export default function AdminReportsPage(){
-  const current=useAuthenticatedUser();const reports=useMvpStore(state=>state.reports);const providers=useMvpStore(state=>state.providers);const update=useMvpStore(state=>state.updateReport);const [filter,setFilter]=useState<Report["status"]|"">("PENDING");
-  if(!current.isAdmin)return <div className="content-page"><EmptyState icon={<ShieldAlert/>} title="No autorizado">Tu cuenta no tiene permisos administrativos.</EmptyState></div>;
-  const list=reports.filter(report=>!filter||report.status===filter);
-  return <div className="content-page"><PageHeader eyebrow="Administración" title="Revisión de reportes" description="Cada caso requiere criterio humano. Ningún reporte sanciona una cuenta automáticamente." actions={<label>Estado<select value={filter} onChange={event=>setFilter(event.target.value as Report["status"]|"")}><option value="">Todos</option>{Object.entries(reportLabels).map(([value,label])=><option value={value} key={value}>{label}</option>)}</select></label>}/>{list.length?<div className="report-table">{list.map(report=><article key={report.id}><div className="report-icon"><Flag/></div><div><div className="report-meta"><span className="status">{reportLabels[report.status]}</span><time>{new Date(report.createdAt).toLocaleDateString("es-NI",{day:"2-digit",month:"2-digit",year:"numeric"})}</time></div><h2>{report.reason}</h2><p>{report.description}</p><small>Relacionado con: {providers.find(provider=>provider.id===report.targetId)?.publicName||"Conversación reportada"}</small></div>{report.status==="PENDING"?<div className="report-actions"><button className="button secondary" onClick={()=>update(report.id,"DISMISSED")}><XCircle/> Descartar</button><button className="button secondary" onClick={()=>update(report.id,"ESCALATED")}><AlertTriangle/> Escalar</button><button className="button primary" onClick={()=>update(report.id,"REVIEWED")}><CheckCircle2/> Marcar revisado</button></div>:<p className="form-note">Caso {reportLabels[report.status].toLowerCase()}. No hay acciones pendientes.</p>}</article>)}</div>:<EmptyState title="No hay reportes en este estado">Cambiá el filtro para consultar otros casos.</EmptyState>}</div>;
+const statusOptions: Array<AdminRiskReportStatus | ""> = ["", "OPEN", "UNDER_REVIEW", "ESCALATED", "DISMISSED", "ACTION_TAKEN"];
+
+function providerStatusLabel(status: string) {
+  if (status === "SUSPENDED") return "Suspendido";
+  if (status === "BANNED") return "Baneado";
+  return "Activo";
+}
+
+export default function AdminReportsPage() {
+  const { user } = useAuthStore();
+  const roles = new Set([user?.role, ...(user?.roleLabels ?? [])].filter(Boolean));
+  const canReview = roles.has("ADMIN") || roles.has("ADMIN_REVIEWER") || roles.has("SUPER_ADMIN");
+  const isSuperAdmin = roles.has("SUPER_ADMIN");
+
+  const [filter, setFilter] = useState<AdminRiskReportStatus | "">("OPEN");
+  const [reports, setReports] = useState<AdminRiskReport[]>([]);
+  const [auditLog, setAuditLog] = useState<ModerationAuditLog[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [note, setNote] = useState("");
+  const [reason, setReason] = useState("");
+  const [suspendedUntil, setSuspendedUntil] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const selected = useMemo(() => reports.find(report => report.id === selectedId) ?? reports[0] ?? null, [reports, selectedId]);
+
+  async function load() {
+    if (!canReview) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const nextReports = await adminApi.getRiskReports(filter || undefined);
+      setReports(nextReports);
+      setSelectedId(current => current && nextReports.some(report => report.id === current) ? current : nextReports[0]?.id ?? null);
+      if (isSuperAdmin) {
+        setAuditLog(await adminApi.getAuditLog());
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filter, canReview, isSuperAdmin]);
+
+  async function updateReport(status: AdminRiskReportStatus) {
+    if (!selected) return;
+    setError(null);
+    try {
+      await adminApi.updateRiskReportStatus(selected.id, { status, reviewerNotes: note, reason });
+      setNote("");
+      setReason("");
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function escalateReport() {
+    if (!selected) return;
+    setError(null);
+    try {
+      await adminApi.escalateRiskReport(selected.id, note || reason);
+      setNote("");
+      setReason("");
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  async function moderateProvider(action: "suspend" | "ban" | "reactivate") {
+    if (!selected) return;
+    setError(null);
+    try {
+      if (action === "suspend") await adminApi.suspendProvider(selected.provider.id, { reason, suspendedUntil: suspendedUntil || undefined });
+      if (action === "ban") await adminApi.banProvider(selected.provider.id, reason);
+      if (action === "reactivate") await adminApi.reactivateProvider(selected.provider.id, reason);
+      await adminApi.updateRiskReportStatus(selected.id, { status: "ACTION_TAKEN", reason: reason || "Acción de moderación aplicada" });
+      setReason("");
+      setSuspendedUntil("");
+      await load();
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }
+
+  if (!canReview) {
+    return (
+      <div className="content-page">
+        <EmptyState icon={<ShieldAlert />} title="No autorizado">
+          Tu cuenta no tiene permisos para revisar reportes.
+        </EmptyState>
+      </div>
+    );
+  }
+
+  return (
+    <div className="content-page">
+      <PageHeader
+        eyebrow={isSuperAdmin ? "Super administración" : "Admin reviewer"}
+        title="Revisión de reportes"
+        description="Los reportes muestran evidencia agregada y sanitizada. Las sanciones requieren razón y quedan auditadas."
+        actions={
+          <label>
+            Estado
+            <select value={filter} onChange={event => setFilter(event.target.value as AdminRiskReportStatus | "")}>
+              {statusOptions.map(value => (
+                <option value={value} key={value || "all"}>{value ? reportLabels[value] : "Todos"}</option>
+              ))}
+            </select>
+          </label>
+        }
+      />
+
+      {error && <p className="field-error" role="alert">{error}</p>}
+
+      {loading ? (
+        <EmptyState title="Cargando reportes">Consultando reportes desde la base de datos.</EmptyState>
+      ) : reports.length === 0 ? (
+        <EmptyState icon={<Flag />} title="No hay reportes en este estado">
+          Cambiá el filtro para revisar otros casos.
+        </EmptyState>
+      ) : (
+        <div className="admin-review-layout">
+          <section className="admin-report-list" aria-label="Reportes">
+            {reports.map(report => (
+              <button
+                key={report.id}
+                className={report.id === selected?.id ? "active" : ""}
+                onClick={() => setSelectedId(report.id)}
+              >
+                <span>{reportLabels[report.status]}</span>
+                <strong>{report.provider.displayName}</strong>
+                <small>Riesgo {Math.round(report.riskScore)} · {new Date(report.generatedAt).toLocaleDateString("es-NI")}</small>
+              </button>
+            ))}
+          </section>
+
+          {selected && (
+            <main className="admin-report-detail">
+              <section className="content-section">
+                <div className="section-heading">
+                  <div>
+                    <span className="eyebrow">{reportLabels[selected.status]}</span>
+                    <h2>{selected.provider.displayName}</h2>
+                  </div>
+                  <span className={`provider-status-chip ${selected.provider.status.toLowerCase()}`}>
+                    {providerStatusLabel(selected.provider.status)}
+                  </span>
+                </div>
+                <p className="form-note">
+                  Evidencia segura: métricas agregadas de riesgo, sin contenido privado de conversaciones.
+                </p>
+                <div className="business-metrics">
+                  <div><strong>{Math.round(selected.riskScore)}</strong><span>Riesgo</span></div>
+                  <div><strong>{selected.suspiciousCyclesCount}</strong><span>Ciclos sospechosos</span></div>
+                  <div><strong>{selected.avgMessagesPerRequest ?? "N/D"}</strong><span>Mensajes por solicitud</span></div>
+                  <div><strong>{selected.newAccountsPercentage ?? "N/D"}</strong><span>Cuentas nuevas</span></div>
+                </div>
+                <p>{selected.recommendedAction || "Revisión manual recomendada."}</p>
+                {selected.reviewerNotes && <p className="reviewer-note"><strong>Notas previas:</strong> {selected.reviewerNotes}</p>}
+              </section>
+
+              <section className="content-section">
+                <h2>Acciones de revisión</h2>
+                <label>
+                  Nota interna o razón
+                  <textarea value={note} onChange={event => setNote(event.target.value)} rows={4} placeholder="Resumen seguro para auditoría, sin chats privados." />
+                </label>
+                <div className="report-actions">
+                  <button className="button secondary" onClick={() => updateReport("UNDER_REVIEW")}><Clock3 /> En revisión</button>
+                  <button className="button secondary" onClick={() => updateReport("DISMISSED")}><CheckCircle2 /> Descartar</button>
+                  <button className="button primary" onClick={escalateReport}><AlertTriangle /> Escalar</button>
+                </div>
+              </section>
+
+              {isSuperAdmin && (
+                <section className="content-section">
+                  <h2>Acciones de super administración</h2>
+                  <form className="admin-moderation-form" onSubmit={event => { event.preventDefault(); moderateProvider("suspend"); }}>
+                    <label>
+                      Razón obligatoria
+                      <textarea required value={reason} onChange={event => setReason(event.target.value)} rows={3} />
+                    </label>
+                    <label>
+                      Suspender hasta (opcional)
+                      <input type="date" value={suspendedUntil} onChange={event => setSuspendedUntil(event.target.value)} />
+                    </label>
+                    <div className="report-actions">
+                      <button className="button secondary"><AlertTriangle /> Suspender</button>
+                      <button className="button secondary" type="button" onClick={() => moderateProvider("reactivate")}><RotateCcw /> Reactivar</button>
+                      <button className="button primary danger" type="button" onClick={() => moderateProvider("ban")}><Ban /> Banear</button>
+                    </div>
+                  </form>
+                </section>
+              )}
+            </main>
+          )}
+
+          {isSuperAdmin && (
+            <aside className="content-section admin-audit-panel">
+              <h2>Auditoría reciente</h2>
+              {auditLog.slice(0, 8).map(log => (
+                <article key={log.id}>
+                  <strong>{log.action}</strong>
+                  <span>{log.actor?.email || log.actorUserId}</span>
+                  <small>{new Date(log.createdAt).toLocaleString("es-NI")} · {log.reason}</small>
+                </article>
+              ))}
+            </aside>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }

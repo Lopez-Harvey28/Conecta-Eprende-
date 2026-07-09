@@ -12,6 +12,9 @@ export interface ProviderSearchResult {
   shortDescription: string | null;
   priceRange: string | null;
   availability: string;
+  status: string;
+  statusReason: string | null;
+  suspendedUntil: string | null;
   verified: boolean;
   verificationLevel: string | null;
   formalizationStatus: string;

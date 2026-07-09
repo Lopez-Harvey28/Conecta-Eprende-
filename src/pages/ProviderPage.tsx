@@ -107,6 +107,8 @@ export default function ProviderPage() {
   }
 
   const isOwnProfile = (user?.providers?.[0]?.id || user?.providerProfileId) === provider.id;
+  const providerStatus = provider.status || "ACTIVE";
+  const isRestrictedProvider = providerStatus === "SUSPENDED" || providerStatus === "BANNED";
 
   return (
     <div className="provider-page">
@@ -134,7 +136,11 @@ export default function ProviderPage() {
             <FormalizationBadge status={(provider.formalizationStatus as any) || "INFORMAL"} />
           </div>
           <div className="provider-primary-actions">
-            {isOwnProfile ? (
+            {isRestrictedProvider ? (
+              <span className="button secondary disabled">
+                {providerStatus === "BANNED" ? "Este proveedor no puede recibir solicitudes" : "Proveedor suspendido temporalmente"}
+              </span>
+            ) : isOwnProfile ? (
               <Link className="button primary" to="/me/profile/edit">
                 Editar mi perfil público
               </Link>
@@ -152,6 +158,20 @@ export default function ProviderPage() {
 
       <div className="provider-grid">
         <main>
+          {isRestrictedProvider && (
+            <section className={`provider-status-banner ${providerStatus.toLowerCase()}`}>
+              <h2>{providerStatus === "BANNED" ? "Perfil proveedor baneado" : "Perfil proveedor suspendido"}</h2>
+              <p>
+                {providerStatus === "BANNED"
+                  ? "Este perfil no puede recibir nuevas solicitudes."
+                  : "Este perfil está suspendido temporalmente y no puede recibir nuevas solicitudes."}
+                {provider.statusReason ? ` Razón: ${provider.statusReason}` : ""}
+                {provider.suspendedUntil ? ` Hasta: ${new Date(provider.suspendedUntil).toLocaleDateString("es-NI")}.` : ""}
+              </p>
+              {isOwnProfile && <p className="form-note">Como dueño del perfil, podés revisar esta restricción con administración antes de operar de nuevo.</p>}
+            </section>
+          )}
+
           <section className="content-section">
             <div className="section-heading">
               <h2>Acerca del negocio</h2>
@@ -224,7 +244,9 @@ export default function ProviderPage() {
                         </div>
                       </dl>
                       <div className="card-actions">
-                        {isOwnProfile ? (
+                        {isRestrictedProvider ? (
+                          <span className="button secondary disabled">No disponible por estado del perfil</span>
+                        ) : isOwnProfile ? (
                           <Link className="button primary" to={`/me/products/${offer.id}/edit`}>
                             Editar oferta
                           </Link>

@@ -20,7 +20,8 @@ export default function ProtectedRoute({ children, allowedRoles }: ProtectedRout
     return <Navigate to="/auth/login" state={{ from: location }} replace />;
   }
 
-  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+  const roles = user ? new Set([user.role, ...(user.roleLabels ?? [])]) : new Set<string>();
+  if (allowedRoles && user && !allowedRoles.some(role => roles.has(role))) {
     return <Navigate to="/" replace />;
   }
 

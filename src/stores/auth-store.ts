@@ -18,6 +18,9 @@ export interface AuthUser {
     slug: string;
     verified: boolean;
     formalizationStatus: string;
+    status?: string;
+    statusReason?: string | null;
+    suspendedUntil?: string | null;
   }>;
 }
 

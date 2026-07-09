@@ -102,7 +102,9 @@ export default function SearchPage() {
 
         const proximity = cityTarget ? (provider.city === cityTarget ? 100 : 25) : 70;
         const priceMatch = intent.budget ? (provider.priceRange === intent.budget ? 100 : 40) : 70;
-        const availabilityScore = provider.availability === "DISPONIBLE" ? 100 : provider.availability === "OCUPADO" ? 50 : 0;
+        const availabilityScore = provider.status === "SUSPENDED" || provider.status === "BANNED"
+          ? -100
+          : provider.availability === "DISPONIBLE" ? 100 : provider.availability === "OCUPADO" ? 50 : 0;
 
         return {
           ...provider,
@@ -124,6 +126,9 @@ export default function SearchPage() {
       lng: provider.lng,
       trustScore: provider.trustScore,
       availabilityLabel: availabilityLabel[provider.availability] || provider.availability,
+      status: provider.status,
+      statusReason: provider.statusReason,
+      suspendedUntil: provider.suspendedUntil,
       priceLabel: priceLabel[provider.priceRange] || provider.priceRange || "",
       verificationLabel: { UNVERIFIED: "Sin verificar", PHONE: "Teléfono verificado", COMPLETE: "Perfil verificado" }[provider.verificationLevel] || provider.verificationLevel || "Sin verificar",
       formalizationLabel: formalizationLabel[provider.formalizationStatus] || provider.formalizationStatus || "",
@@ -250,7 +255,9 @@ export default function SearchPage() {
                     </div>
                     <div className="card-actions">
                       <Link className="button secondary" to={`/providers/${provider.id}`}>Ver perfil</Link>
-                      {provider.id === ownedProviderId ? (
+                      {provider.status === "SUSPENDED" || provider.status === "BANNED" ? (
+                        <span className="button secondary disabled">{provider.status === "BANNED" ? "Proveedor baneado" : "Proveedor suspendido"}</span>
+                      ) : provider.id === ownedProviderId ? (
                         <Link className="button primary" to="/me/profile/edit">Editar mi perfil</Link>
                       ) : (
                         <button className="button primary" onClick={() => navigate(`/requests/new?providerId=${provider.id}`)}>Solicitar cotización</button>

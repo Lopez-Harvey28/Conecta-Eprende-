@@ -23,6 +23,9 @@ export interface SearchMapProvider {
   lng: number;
   trustScore: number;
   availabilityLabel: string;
+  status?: string;
+  statusReason?: string | null;
+  suspendedUntil?: string | null;
   priceLabel: string;
   verificationLabel: string;
   formalizationLabel: string;
@@ -311,7 +314,11 @@ export default function MvpProviderMap({
               <Link className="button secondary" to={`/providers/${selectedProvider.id}`}>
                 Ver perfil <ArrowRight />
               </Link>
-              {selectedProvider.isOwnProfile ? (
+              {selectedProvider.status === "SUSPENDED" || selectedProvider.status === "BANNED" ? (
+                <span className="button secondary disabled">
+                  {selectedProvider.status === "BANNED" ? "No recibe solicitudes" : "Suspendido temporalmente"}
+                </span>
+              ) : selectedProvider.isOwnProfile ? (
                 <Link className="button primary" to="/me/profile/edit">
                   Editar perfil
                 </Link>

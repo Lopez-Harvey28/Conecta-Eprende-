@@ -218,7 +218,13 @@ export default function SearchPage() {
                   onMouseLeave={() => setHoveredId(null)}
                   onClick={() => setSelectedId(provider.id)}
                 >
-                  <img src={provider.photos?.[0] || ""} alt="" />
+                  {provider.photos?.[0] ? (
+                    <img src={provider.photos[0]} alt="" />
+                  ) : (
+                    <div className="provider-result-image-placeholder" aria-hidden="true">
+                      <MapPin />
+                    </div>
+                  )}
                   <div className="provider-body">
                     <div className="provider-title">
                       <div>

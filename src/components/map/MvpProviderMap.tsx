@@ -283,7 +283,13 @@ export default function MvpProviderMap({
           <button className="map-preview-close" onClick={() => onSelectProvider(null)} aria-label="Cerrar vista previa">
             <X />
           </button>
-          <img src={selectedProvider.image} alt="" />
+          {selectedProvider.image ? (
+            <img src={selectedProvider.image} alt="" />
+          ) : (
+            <div className="map-preview-image-placeholder" aria-hidden="true">
+              <MapPin />
+            </div>
+          )}
           <div className="map-preview-body">
             <span className="map-preview-category">{selectedProvider.category}</span>
             <h2>{selectedProvider.publicName}</h2>

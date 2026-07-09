@@ -171,18 +171,16 @@ export function NewRequestPage() {
 
 export function RequestsPage() {
   const { user, isAuthenticated } = useAuthStore();
-  const { threads, fetchThreadsByProvider, fetchThreadsBySender, isLoading } = useQuotesStore();
+  const { threads, fetchMyThreads, clearThreads, isLoading } = useQuotesStore();
   const [tab, setTab] = useState(0);
 
   useEffect(() => {
-    if (!isAuthenticated || !user) return;
-    const providerIdForUser = user.providers?.[0]?.id || user.providerProfileId;
-    if (providerIdForUser) {
-      fetchThreadsByProvider(providerIdForUser);
-    } else {
-      fetchThreadsBySender(user.id);
+    if (!isAuthenticated || !user) {
+      clearThreads();
+      return;
     }
-  }, [isAuthenticated, user, fetchThreadsByProvider, fetchThreadsBySender]);
+    fetchMyThreads();
+  }, [isAuthenticated, user?.id, fetchMyThreads, clearThreads]);
 
   const list = threads.filter(thread => tabs[tab].statuses.includes(thread.status));
 

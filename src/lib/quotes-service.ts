@@ -21,6 +21,65 @@ export interface QuoteThreadWithMessages {
   providerSlug?: string;
 }
 
+function mapThread(t: any): QuoteThreadWithMessages {
+  return {
+    id: t.id,
+    senderId: t.senderId,
+    providerId: t.providerId,
+    catalogItemId: t.catalogItemId,
+    subject: t.subject,
+    clientName: t.clientName || t.sender?.name || "Cliente",
+    clientAvatar: t.clientAvatar || (t.sender?.name?.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2) || "CL"),
+    dateLabel: t.dateLabel || computeDateLabel(t.createdAt),
+    status: t.status,
+    quotedPriceLabel: t.quotedPriceLabel,
+    quotedDeliveryTime: t.quotedDeliveryTime,
+    confirmedByRequesterAt: t.confirmedByRequesterAt?.toISOString() || null,
+    confirmedByProviderAt: t.confirmedByProviderAt?.toISOString() || null,
+    completedAt: t.completedAt?.toISOString() || null,
+    createdAt: t.createdAt,
+    providerDisplayName: t.provider?.displayName,
+    providerSlug: t.provider?.slug,
+    messages: t.messages.map((m: any) => ({
+      id: m.id,
+      author: m.authorRole,
+      text: m.body,
+      time: m.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+    })),
+  };
+}
+
+export async function getThreadsForParticipant(userId: string): Promise<QuoteThreadWithMessages[]> {
+  const ownedProviders = await prisma.provider.findMany({
+    where: { userId },
+    select: { id: true },
+  });
+  const ownedProviderIds = ownedProviders.map(provider => provider.id);
+
+  const threads = await prisma.quoteThread.findMany({
+    where: {
+      OR: [
+        { senderId: userId },
+        ...(ownedProviderIds.length ? [{ providerId: { in: ownedProviderIds } }] : []),
+      ],
+    },
+    include: {
+      messages: {
+        orderBy: { createdAt: "asc" },
+      },
+      sender: {
+        select: { id: true, name: true, image: true },
+      },
+      provider: {
+        select: { id: true, displayName: true, slug: true },
+      },
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return threads.map(mapThread);
+}
+
 export async function getThreadsByProvider(providerId: string): Promise<QuoteThreadWithMessages[]> {
   const threads = await prisma.quoteThread.findMany({
     where: { providerId },
@@ -35,29 +94,7 @@ export async function getThreadsByProvider(providerId: string): Promise<QuoteThr
     orderBy: { createdAt: "desc" },
   });
 
-  return threads.map((t) => ({
-    id: t.id,
-    senderId: t.senderId,
-    providerId: t.providerId,
-    catalogItemId: t.catalogItemId,
-    subject: t.subject,
-    clientName: t.clientName || t.sender?.name || "Cliente",
-    clientAvatar: t.clientAvatar || (t.sender?.name?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) || "CL"),
-    dateLabel: t.dateLabel || computeDateLabel(t.createdAt),
-    status: t.status,
-    quotedPriceLabel: t.quotedPriceLabel,
-    quotedDeliveryTime: t.quotedDeliveryTime,
-    confirmedByRequesterAt: t.confirmedByRequesterAt?.toISOString() || null,
-    confirmedByProviderAt: t.confirmedByProviderAt?.toISOString() || null,
-    completedAt: t.completedAt?.toISOString() || null,
-    createdAt: t.createdAt,
-    messages: t.messages.map((m) => ({
-      id: m.id,
-      author: m.authorRole, // legacy compatibility
-      text: m.body,
-      time: m.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    })),
-  }));
+  return threads.map(mapThread);
 }
 
 export async function getThreadsBySender(senderId: string): Promise<QuoteThreadWithMessages[]> {
@@ -77,31 +114,7 @@ export async function getThreadsBySender(senderId: string): Promise<QuoteThreadW
     orderBy: { createdAt: "desc" },
   });
 
-  return threads.map((t) => ({
-    id: t.id,
-    senderId: t.senderId,
-    providerId: t.providerId,
-    catalogItemId: t.catalogItemId,
-    subject: t.subject,
-    clientName: t.clientName || t.sender?.name || "Cliente",
-    clientAvatar: t.clientAvatar || (t.sender?.name?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) || "CL"),
-    dateLabel: t.dateLabel || computeDateLabel(t.createdAt),
-    status: t.status,
-    quotedPriceLabel: t.quotedPriceLabel,
-    quotedDeliveryTime: t.quotedDeliveryTime,
-    confirmedByRequesterAt: t.confirmedByRequesterAt?.toISOString() || null,
-    confirmedByProviderAt: t.confirmedByProviderAt?.toISOString() || null,
-    completedAt: t.completedAt?.toISOString() || null,
-    createdAt: t.createdAt,
-    providerDisplayName: t.provider?.displayName,
-    providerSlug: t.provider?.slug,
-    messages: t.messages.map((m) => ({
-      id: m.id,
-      author: m.authorRole,
-      text: m.body,
-      time: m.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    })),
-  }));
+  return threads.map(mapThread);
 }
 
 export async function createThread(data: {
@@ -152,31 +165,7 @@ export async function getThreadById(threadId: string): Promise<QuoteThreadWithMe
 
   if (!t) return null;
 
-  return {
-    id: t.id,
-    senderId: t.senderId,
-    providerId: t.providerId,
-    catalogItemId: t.catalogItemId,
-    subject: t.subject,
-    clientName: t.clientName || t.sender?.name || "Cliente",
-    clientAvatar: t.clientAvatar || (t.sender?.name?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) || "CL"),
-    dateLabel: t.dateLabel || computeDateLabel(t.createdAt),
-    status: t.status,
-    quotedPriceLabel: t.quotedPriceLabel,
-    quotedDeliveryTime: t.quotedDeliveryTime,
-    confirmedByRequesterAt: t.confirmedByRequesterAt?.toISOString() || null,
-    confirmedByProviderAt: t.confirmedByProviderAt?.toISOString() || null,
-    completedAt: t.completedAt?.toISOString() || null,
-    createdAt: t.createdAt,
-    providerDisplayName: t.provider?.displayName,
-    providerSlug: t.provider?.slug,
-    messages: t.messages.map((m) => ({
-      id: m.id,
-      author: m.authorRole,
-      text: m.body,
-      time: m.createdAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-    })),
-  };
+  return mapThread(t);
 }
 
 export async function addMessage(threadId: string, data: {

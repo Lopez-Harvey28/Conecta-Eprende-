@@ -44,6 +44,7 @@ import {
 import {
   getThreadsByProvider,
   getThreadsBySender,
+  getThreadsForParticipant,
   createThread,
   getThreadById,
   addMessage,
@@ -727,9 +728,8 @@ async function startServer() {
     }
   });
 
-  // GET Quotes — optionally filtered by ?providerId= or ?senderId=
-  // For MVP: returns threads by providerId (backward compatible)
-  // After auth: use ?senderId= with auth middleware to get user's threads
+  // GET Quotes — default returns every thread where the authenticated user participates.
+  // Legacy ?providerId= and ?senderId= remain guarded for narrow views.
   app.get("/api/quotes", authenticate, async (req, res) => {
     try {
       const providerId = req.query.providerId as string | undefined;
@@ -753,7 +753,8 @@ async function startServer() {
         return res.json({ success: true, data: threads });
       }
 
-      res.json({ success: true, data: [] });
+      const threads = await getThreadsForParticipant(userId);
+      res.json({ success: true, data: threads });
     } catch (error) {
       console.error("Get quotes error:", error);
       res.status(500).json({ success: false, error: "Error al obtener cotizaciones" });

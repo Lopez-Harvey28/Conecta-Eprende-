@@ -34,6 +34,7 @@ interface QuotesState {
   isLoading: boolean;
   error: string | null;
 
+  fetchMyThreads: () => Promise<void>;
   fetchThreadsByProvider: (providerId: string) => Promise<void>;
   fetchThreadsBySender: (senderId: string) => Promise<void>;
   getThread: (threadId: string) => Promise<QuoteThread | null>;
@@ -46,6 +47,7 @@ interface QuotesState {
     catalogItemId?: string;
   }) => Promise<QuoteThread | null>;
   clearCurrentThread: () => void;
+  clearThreads: () => void;
 }
 
 export const useQuotesStore = create<QuotesState>((set, get) => ({
@@ -53,6 +55,25 @@ export const useQuotesStore = create<QuotesState>((set, get) => ({
   currentThread: null,
   isLoading: false,
   error: null,
+
+  fetchMyThreads: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch("/api/quotes", {
+        credentials: "include",
+      });
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Error al obtener conversaciones");
+      }
+
+      set({ threads: data.data, isLoading: false });
+    } catch (error) {
+      console.error("fetchMyThreads error:", error);
+      set({ threads: [], error: (error as Error).message, isLoading: false });
+    }
+  },
 
   fetchThreadsByProvider: async (providerId) => {
     set({ isLoading: true, error: null });
@@ -69,7 +90,7 @@ export const useQuotesStore = create<QuotesState>((set, get) => ({
       set({ threads: data.data, isLoading: false });
     } catch (error) {
       console.error("fetchThreadsByProvider error:", error);
-      set({ error: (error as Error).message, isLoading: false });
+      set({ threads: [], error: (error as Error).message, isLoading: false });
     }
   },
 
@@ -88,7 +109,7 @@ export const useQuotesStore = create<QuotesState>((set, get) => ({
       set({ threads: data.data, isLoading: false });
     } catch (error) {
       console.error("fetchThreadsBySender error:", error);
-      set({ error: (error as Error).message, isLoading: false });
+      set({ threads: [], error: (error as Error).message, isLoading: false });
     }
   },
 
@@ -105,7 +126,13 @@ export const useQuotesStore = create<QuotesState>((set, get) => ({
         return null;
       }
 
-      set({ currentThread: data.data, isLoading: false });
+      set(state => ({
+        currentThread: data.data,
+        threads: state.threads.some(thread => thread.id === data.data.id)
+          ? state.threads.map(thread => thread.id === data.data.id ? data.data : thread)
+          : state.threads,
+        isLoading: false,
+      }));
       return data.data;
     } catch (error) {
       console.error("getThread error:", error);
@@ -173,7 +200,10 @@ export const useQuotesStore = create<QuotesState>((set, get) => ({
         throw new Error(data.error || "Error al crear conversación");
       }
 
-      set({ isLoading: false });
+      set(state => ({
+        threads: [data.data, ...state.threads.filter(thread => thread.id !== data.data.id)],
+        isLoading: false,
+      }));
       return data.data;
     } catch (error) {
       console.error("createThread error:", error);
@@ -183,4 +213,5 @@ export const useQuotesStore = create<QuotesState>((set, get) => ({
   },
 
   clearCurrentThread: () => set({ currentThread: null }),
+  clearThreads: () => set({ threads: [], currentThread: null, error: null, isLoading: false }),
 }));

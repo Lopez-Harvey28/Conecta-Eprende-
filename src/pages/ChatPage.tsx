@@ -29,8 +29,8 @@ export default function ChatPage() {
   const {
     threads,
     currentThread,
-    fetchThreadsByProvider,
-    fetchThreadsBySender,
+    fetchMyThreads,
+    clearThreads,
     getThread,
     addMessage,
     updateThread,
@@ -56,13 +56,12 @@ export default function ChatPage() {
   const actor: "provider" | "requester" = isProviderParticipant ? "provider" : "requester";
 
   useEffect(() => {
-    if (!user) return;
-    if (user.role === "PROVIDER" && user.providers?.[0]?.id) {
-      fetchThreadsByProvider(user.providers[0].id);
-    } else {
-      fetchThreadsBySender(user.id);
+    if (!user) {
+      clearThreads();
+      return;
     }
-  }, [user, fetchThreadsByProvider, fetchThreadsBySender]);
+    fetchMyThreads();
+  }, [user?.id, fetchMyThreads, clearThreads]);
 
   useEffect(() => {
     if (requestId) {

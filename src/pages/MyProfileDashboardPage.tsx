@@ -87,7 +87,7 @@ function RecentRequests({ threads }: { threads: QuoteThread[] }) {
 export default function MyProfileDashboardPage() {
   const { user, isAuthenticated, isLoading: authLoading } = useAuthStore();
   const { currentProvider, getProvider, clearCurrentProvider, isLoading: providerLoading } = useProvidersStore();
-  const { threads, fetchThreadsByProvider, fetchThreadsBySender } = useQuotesStore();
+  const { threads, fetchMyThreads, clearThreads } = useQuotesStore();
 
   const providerId = user?.providers?.[0]?.id ?? user?.providerProfileId ?? null;
   const provider = currentProvider?.provider;
@@ -101,13 +101,12 @@ export default function MyProfileDashboardPage() {
   }, [providerId, getProvider, clearCurrentProvider]);
 
   useEffect(() => {
-    if (!user) return;
-    if (providerId) {
-      fetchThreadsByProvider(providerId);
-    } else {
-      fetchThreadsBySender(user.id);
+    if (!user) {
+      clearThreads();
+      return;
     }
-  }, [user, providerId, fetchThreadsByProvider, fetchThreadsBySender]);
+    fetchMyThreads();
+  }, [user?.id, fetchMyThreads, clearThreads]);
 
   if (authLoading || providerLoading) {
     return (

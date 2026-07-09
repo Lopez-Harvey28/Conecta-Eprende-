@@ -39,7 +39,7 @@ export default function RootLayout() {
   const location = useLocation();
 
   const { toast, setToast, leaving, setLeaving } = useToastStore();
-  const { threads, fetchThreadsByProvider, fetchThreadsBySender } = useQuotesStore();
+  const { threads, fetchMyThreads, clearThreads } = useQuotesStore();
   const { user, isAuthenticated, logout, fetchMe } = useAuthStore();
 
   const unread = threads.filter(t => t.status === "OPEN").length;
@@ -64,14 +64,12 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !user) return;
-    const providerId = user.providers?.[0]?.id || user.providerProfileId;
-    if (providerId) {
-      fetchThreadsByProvider(providerId);
-    } else {
-      fetchThreadsBySender(user.id);
+    if (!isAuthenticated || !user) {
+      clearThreads();
+      return;
     }
-  }, [isAuthenticated, user, fetchThreadsByProvider, fetchThreadsBySender]);
+    fetchMyThreads();
+  }, [isAuthenticated, user?.id, fetchMyThreads, clearThreads]);
 
   const handleLogout = async () => {
     setAccount(false);

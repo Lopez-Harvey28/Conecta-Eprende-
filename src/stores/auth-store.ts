@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-interface AuthUser {
+export interface AuthUser {
   id: string;
   email: string;
   name: string | null;
@@ -8,12 +8,19 @@ interface AuthUser {
   role: string;
   emailVerified: string | null;
   createdAt: string;
+  roleLabels?: string[];
+  requesterProfileId?: string;
+  providerProfileId?: string | null;
+  profileState?: "DRAFT" | "ACTIVE" | "INACTIVE" | "SUSPENDED" | "BANNED" | "TEMPORARILY_RESTRICTED";
   providers: Array<{
     id: string;
     displayName: string;
     slug: string;
     verified: boolean;
-    formalizationStatus: string;
+    formalizationStatus?: string;
+    status?: string;
+    statusReason?: string | null;
+    suspendedUntil?: string | null;
   }>;
 }
 

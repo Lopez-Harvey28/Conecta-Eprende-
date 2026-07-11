@@ -1,15 +1,15 @@
 import React, { useEffect, useState, type ErrorInfo, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { BriefcaseBusiness, ChevronDown, Flag, Home, Menu, MessageCircle, Search, Settings, ShieldCheck, Store, UserRound, X, LogIn } from "lucide-react";
+import { ChevronDown, Flag, Home, Menu, MessageCircle, Search, Settings, ShieldCheck, Store, UserRound, X, LogIn } from "lucide-react";
 import { useToastStore } from "../../stores/toast-store";
 import { useAuthStore } from "../../stores/auth-store";
 import { useQuotesStore } from "../../stores/quotes-store";
+import { getRoleLabel } from "../../lib/identity";
 
 const nav = [
   { to: "/", label: "Inicio", icon: Home, end: true },
   { to: "/search", label: "Buscar", icon: Search },
   { to: "/requests", label: "Conversaciones", icon: MessageCircle },
-  { to: "/formalization", label: "Formalización", icon: BriefcaseBusiness },
   { to: "/me", label: "Mi perfil", icon: UserRound },
 ];
 
@@ -40,7 +40,7 @@ export default function RootLayout() {
   const location = useLocation();
 
   const { toast, setToast, leaving, setLeaving } = useToastStore();
-  const { threads, fetchThreadsByProvider, fetchThreadsBySender } = useQuotesStore();
+  const { threads, fetchMyThreads, clearThreads } = useQuotesStore();
   const { user, isAuthenticated, logout, fetchMe } = useAuthStore();
 
   const unread = threads.filter(t => t.status === "OPEN").length;
@@ -65,13 +65,12 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (!isAuthenticated || !user) return;
-    if (user.role === "PROVIDER" && user.providers?.[0]?.id) {
-      fetchThreadsByProvider(user.providers[0].id);
-    } else if (user.role === "USER") {
-      fetchThreadsBySender(user.id);
+    if (!isAuthenticated || !user) {
+      clearThreads();
+      return;
     }
-  }, [isAuthenticated, user, fetchThreadsByProvider, fetchThreadsBySender]);
+    fetchMyThreads();
+  }, [isAuthenticated, user?.id, fetchMyThreads, clearThreads]);
 
   const handleLogout = async () => {
     setAccount(false);
@@ -80,6 +79,7 @@ export default function RootLayout() {
 
   const displayName = isAuthenticated ? (user?.name || user?.email?.split("@")[0] || "Usuario") : null;
   const initials = displayName ? displayName.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2) : "G";
+  const accountRoleLabel = user ? getRoleLabel([user.role, ...(user.roleLabels ?? [])]) : "";
 
   return (
     <div className="app-shell">
@@ -108,16 +108,16 @@ export default function RootLayout() {
         <div className="account-wrap">
           {isAuthenticated && user ? (
             <>
-              <button className="account-button" onClick={() => setAccount(!account)}>
+              <button className="account-button" onClick={() => setAccount(!account)} aria-expanded={account} aria-haspopup="menu">
                 <span>{initials}</span>
                 <span className="account-copy">
                   <strong>{displayName}</strong>
-                  <small>{user.role === "ADMIN" ? "Administrador" : user.role === "PROVIDER" ? "Proveedor" : "Usuario"}</small>
+                  <small>{accountRoleLabel}</small>
                 </span>
                 <ChevronDown />
               </button>
               {account && (
-                <div className="account-menu">
+                <div className="account-menu" role="menu">
                   <Link to="/settings/security" onClick={() => setAccount(false)}>
                     <Settings /> Configuración y seguridad
                   </Link>

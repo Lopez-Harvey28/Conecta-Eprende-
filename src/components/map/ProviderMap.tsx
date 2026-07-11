@@ -28,23 +28,23 @@ type CategoryMeta = {
 };
 
 const CATEGORY_META: Record<string, CategoryMeta> = {
-  "Diseño Gráfico":   { icon: Palette,           color: "#7c3aed", colorDark: "#5b21b6", bg: "#ede9fe" },
-  "Plomería":         { icon: Wrench,            color: "#2563eb", colorDark: "#1d4ed8", bg: "#dbeafe" },
-  "Carpintería":      { icon: Hammer,            color: "#d97706", colorDark: "#b45309", bg: "#fef3c7" },
-  "Desarrollo Web":   { icon: Code2,             color: "#6366f1", colorDark: "#4338ca", bg: "#e0e7ff" },
-  "Marketing":        { icon: Megaphone,         color: "#db2777", colorDark: "#9d174d", bg: "#fce7f3" },
-  "Electricidad":     { icon: Zap,               color: "#ca8a04", colorDark: "#854d0e", bg: "#fef9c3" },
-  "Limpieza":         { icon: Sparkles,          color: "#0891b2", colorDark: "#0e7490", bg: "#cffafe" },
-  "Contabilidad":     { icon: Calculator,        color: "#059669", colorDark: "#047857", bg: "#d1fae5" },
-  "Abogado":          { icon: Scale,             color: "#475569", colorDark: "#334155", bg: "#e2e8f0" },
-  "Fotografía":       { icon: Camera,            color: "#9333ea", colorDark: "#6b21a8", bg: "#f3e8ff" },
-  "Catering":         { icon: UtensilsCrossed,   color: "#dc2626", colorDark: "#b91c1c", bg: "#fee2e2" },
-  "Jardinería":       { icon: Leaf,              color: "#16a34a", colorDark: "#15803d", bg: "#dcfce7" },
-  "Mecánica":         { icon: Car,               color: "#4f46e5", colorDark: "#3730a3", bg: "#e0e7ff" },
+  "Diseño Gráfico":   { icon: Palette,           color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Plomería":         { icon: Wrench,            color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Carpintería":      { icon: Hammer,            color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Desarrollo Web":   { icon: Code2,             color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Marketing":        { icon: Megaphone,         color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Electricidad":     { icon: Zap,               color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Limpieza":         { icon: Sparkles,          color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Contabilidad":     { icon: Calculator,        color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Abogado":          { icon: Scale,             color: "#5f6f7f", colorDark: "#001F3F", bg: "#C0C0C0" },
+  "Fotografía":       { icon: Camera,            color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Catering":         { icon: UtensilsCrossed,   color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Jardinería":       { icon: Leaf,              color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
+  "Mecánica":         { icon: Car,               color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5" },
 };
 
 const DEFAULT_CATEGORY_META: CategoryMeta = {
-  icon: Sparkles, color: "#0ea5e9", colorDark: "#0284c7", bg: "#e0f2fe",
+  icon: Sparkles, color: "#004080", colorDark: "#001F3F", bg: "#F5F5F5",
 };
 
 function getCategoryMeta(category: string): CategoryMeta {
@@ -65,7 +65,6 @@ export interface MapProvider {
   availability?: string;
   responseTimeHrs?: number;
   verified?: boolean;
-  formalizationStatus?: string;
   photos?: string[];
   reviews?: Array<{ rating: number }>;
 }
@@ -188,9 +187,9 @@ function RichPopup({ provider }: { provider: MapProvider }) {
             <>
               <span style={{ opacity: 0.4 }}>·</span>
               <div className="popup-rating">
-                <Star style={{ fill: "#f59e0b", stroke: "#f59e0b" }} />
-                <span style={{ color: "#0f172a" }}>{avgRating.toFixed(1)}</span>
-                <span style={{ color: "#94a3b8", fontWeight: 600 }}>({reviews.length})</span>
+                <Star style={{ fill: "#004080", stroke: "#004080" }} />
+                <span style={{ color: "#001F3F" }}>{avgRating.toFixed(1)}</span>
+                <span style={{ color: "#C0C0C0", fontWeight: 600 }}>({reviews.length})</span>
               </div>
             </>
           )}
@@ -208,9 +207,9 @@ function RichPopup({ provider }: { provider: MapProvider }) {
           </div>
           <div className="popup-stat">
             <div className="popup-stat-value" style={{ color: meta.color, fontSize: 11 }}>
-              {(provider.formalizationStatus || "INFORMAL").replace("_", " ").slice(0, 10)}
+              {provider.score && provider.score >= 80 ? "Sólido" : "Activo"}
             </div>
-            <div className="popup-stat-label">Estado</div>
+            <div className="popup-stat-label">Perfil</div>
           </div>
         </div>
         <a
@@ -577,10 +576,10 @@ export default function ProviderMap({
             center={[userLocation.lat, userLocation.lng]}
             radius={2000}
             pathOptions={{
-              color: "#3b82f6",
+              color: "#004080",
               weight: 2,
               opacity: 0.5,
-              fillColor: "#3b82f6",
+              fillColor: "#004080",
               fillOpacity: 0.08,
               dashArray: "6, 6",
             }}

@@ -3,6 +3,7 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import cookieParser from "cookie-parser";
+import { Availability, LegacyCity, FormalizationStatus, Prisma } from "@prisma/client";
 import { extractIntent } from "./src/lib/ai/extract-intent";
 import { generateQuoteDraft } from "./src/lib/ai/quote-draft";
 import { generateEnhancedBio } from "./src/lib/ai/enhance-bio";
@@ -15,6 +16,15 @@ import {
   formalizationUpdateSchema,
   registerSchema,
   loginSchema,
+  providerCreateSchema,
+  providerModerationReasonSchema,
+  providerSuspendSchema,
+  quoteMessageSchema,
+  quoteUpdateSchema,
+  reviewCreateSchema,
+  riskReportEscalateSchema,
+  riskReportQuerySchema,
+  riskReportStatusSchema,
 } from "./src/lib/api-schema";
 import {
   hashPassword,
@@ -43,11 +53,90 @@ import {
 import {
   getThreadsByProvider,
   getThreadsBySender,
+  getThreadsForParticipant,
   createThread,
   getThreadById,
   addMessage,
   updateThread,
 } from "./src/lib/quotes-service";
+
+const cityToEnum: Record<string, LegacyCity> = {
+  "managua": LegacyCity.MANAGUA,
+  "leon": LegacyCity.LEON,
+  "león": LegacyCity.LEON,
+  "granada": LegacyCity.GRANADA,
+  "masaya": LegacyCity.MASAYA,
+  "esteli": LegacyCity.ESTELI,
+  "estelí": LegacyCity.ESTELI,
+  "matagalpa": LegacyCity.MATAGALPA,
+  "bluefields": LegacyCity.BLUEFIELDS,
+  "juigalpa": LegacyCity.JUIGALPA,
+  "nagarote": LegacyCity.NAGAROTE,
+  "san juan de oriente": LegacyCity.SAN_JUAN_DE_ORIENTE,
+};
+
+function normalizeCity(value: unknown): LegacyCity | undefined {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const raw = value.trim();
+  const enumValue = cityToEnum[raw.toLowerCase()] ?? raw.toUpperCase().replace(/\s+/g, "_");
+  return Object.values(LegacyCity).includes(enumValue as LegacyCity) ? enumValue as LegacyCity : undefined;
+}
+
+function normalizeAvailability(value: unknown): Availability {
+  return Object.values(Availability).includes(value as Availability) ? value as Availability : Availability.DISPONIBLE;
+}
+
+function normalizeFormalizationStatus(value: unknown): FormalizationStatus {
+  return Object.values(FormalizationStatus).includes(value as FormalizationStatus) ? value as FormalizationStatus : FormalizationStatus.INFORMAL;
+}
+
+function slugifyProviderName(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 56) || "proveedor";
+}
+
+const cityMetadata: Record<LegacyCity, { city: string; department: string }> = {
+  [LegacyCity.MANAGUA]: { city: "Managua", department: "Managua" },
+  [LegacyCity.LEON]: { city: "Leon", department: "Leon" },
+  [LegacyCity.GRANADA]: { city: "Granada", department: "Granada" },
+  [LegacyCity.MASAYA]: { city: "Masaya", department: "Masaya" },
+  [LegacyCity.ESTELI]: { city: "Esteli", department: "Esteli" },
+  [LegacyCity.MATAGALPA]: { city: "Matagalpa", department: "Matagalpa" },
+  [LegacyCity.BLUEFIELDS]: { city: "Bluefields", department: "RACCS" },
+  [LegacyCity.JUIGALPA]: { city: "Juigalpa", department: "Chontales" },
+  [LegacyCity.NAGAROTE]: { city: "Nagarote", department: "Leon" },
+  [LegacyCity.SAN_JUAN_DE_ORIENTE]: { city: "San Juan de Oriente", department: "Masaya" },
+};
+
+async function ensureCityReference(legacyCode: LegacyCity) {
+  const meta = cityMetadata[legacyCode];
+  const departmentSlug = slugifyProviderName(meta.department);
+  const citySlug = slugifyProviderName(meta.city);
+  const department = await prisma.department.upsert({
+    where: { slug: departmentSlug },
+    update: { name: meta.department },
+    create: { name: meta.department, slug: departmentSlug },
+  });
+  return prisma.city.upsert({
+    where: { slug: citySlug },
+    update: { name: meta.city, departmentId: department.id, legacyCode },
+    create: { name: meta.city, slug: citySlug, departmentId: department.id, legacyCode },
+  });
+}
+
+async function ensureCategoryReference(name: string, parentCategoryId?: string | null) {
+  const slug = slugifyProviderName(name);
+  return prisma.category.upsert({
+    where: { slug },
+    update: { name, parentCategoryId: parentCategoryId ?? null },
+    create: { name, slug, parentCategoryId: parentCategoryId ?? null },
+  });
+}
 
 async function startServer() {
   const app = express();
@@ -67,9 +156,83 @@ async function startServer() {
     if (!payload) {
       return res.status(401).json({ success: false, error: "Sesión expirada" });
     }
-    (req as any).user = payload;
+    req.user = payload;
     next();
   };
+
+  async function getProviderOwnedByUser(providerId: string, userId: string) {
+    return prisma.provider.findFirst({
+      where: { id: providerId, userId },
+      select: { id: true },
+    });
+  }
+
+  async function getThreadParticipantRole(threadId: string, userId: string) {
+    const thread = await prisma.quoteThread.findUnique({
+      where: { id: threadId },
+      include: {
+        provider: { select: { id: true, userId: true } },
+      },
+    });
+
+    if (!thread) return { thread: null, role: null as "client" | "provider" | null };
+    if (thread.senderId === userId) return { thread, role: "client" as const };
+    if (thread.provider.userId === userId) return { thread, role: "provider" as const };
+    return { thread, role: null as "client" | "provider" | null };
+  }
+
+  async function getUserSystemRoles(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        role: true,
+        roleAssignments: { select: { role: true } },
+      },
+    });
+
+    const roles = new Set<string>();
+    if (user?.role) roles.add(user.role);
+    user?.roleAssignments.forEach((assignment) => roles.add(assignment.role));
+    return roles;
+  }
+
+  const requireAdminReviewerOrSuperAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const { userId } = req.user;
+    const roles = await getUserSystemRoles(userId);
+    if (roles.has("ADMIN") || roles.has("ADMIN_REVIEWER") || roles.has("SUPER_ADMIN")) {
+      return next();
+    }
+    return res.status(403).json({ success: false, error: "Necesitás permisos de revisión administrativa" });
+  };
+
+  const requireSuperAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const { userId } = req.user;
+    const roles = await getUserSystemRoles(userId);
+    if (roles.has("SUPER_ADMIN")) {
+      return next();
+    }
+    return res.status(403).json({ success: false, error: "Solo super administración puede ejecutar esta acción" });
+  };
+
+  async function createModerationAuditLog(data: {
+    actorUserId: string;
+    action: string;
+    targetType: string;
+    targetId: string;
+    reason: string;
+    metadata?: Record<string, unknown>;
+  }) {
+    return prisma.moderationAuditLog.create({
+      data: {
+        actor: { connect: { id: data.actorUserId } },
+        action: data.action,
+        targetType: data.targetType,
+        targetId: data.targetId,
+        reason: data.reason,
+        metadata: data.metadata as Prisma.InputJsonValue | undefined,
+      },
+    });
+  }
 
   // ──────────────────────────────────────────────────────────
   // AUTH ROUTES
@@ -125,6 +288,10 @@ async function startServer() {
         },
       });
 
+      await prisma.roleAssignment.create({
+        data: { userId: user.id, role: "REQUESTER" },
+      });
+
       setAuthCookies(res, accessToken, refreshToken);
 
       res.status(201).json({
@@ -135,6 +302,11 @@ async function startServer() {
             email: user.email,
             name: user.name,
             role: user.role,
+            roleLabels: [user.role, "REQUESTER"],
+            providers: [],
+            providerProfileId: null,
+            emailVerified: null,
+            createdAt: new Date(),
           },
         },
       });
@@ -160,7 +332,28 @@ async function startServer() {
 
       const user = await prisma.user.findUnique({
         where: { email },
-        select: { id: true, email: true, name: true, role: true, password: true },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          password: true,
+          emailVerified: true,
+          createdAt: true,
+          roleAssignments: { select: { role: true } },
+          providers: {
+            select: {
+              id: true,
+              displayName: true,
+              slug: true,
+              verified: true,
+              formalizationStatus: true,
+              status: true,
+              statusReason: true,
+              suspendedUntil: true,
+            },
+          },
+        },
       });
 
       if (!user || !user.password) {
@@ -196,6 +389,7 @@ async function startServer() {
       });
 
       setAuthCookies(res, accessToken, refreshToken);
+      const roleLabels = Array.from(new Set([user.role, ...user.roleAssignments.map((assignment) => assignment.role)]));
 
       res.json({
         success: true,
@@ -205,6 +399,11 @@ async function startServer() {
             email: user.email,
             name: user.name,
             role: user.role,
+            emailVerified: user.emailVerified,
+            createdAt: user.createdAt,
+            providers: user.providers,
+            roleLabels,
+            providerProfileId: user.providers[0]?.id ?? null,
           },
         },
       });
@@ -281,7 +480,7 @@ async function startServer() {
   // GET /api/auth/me
   app.get("/api/auth/me", authenticate, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -292,6 +491,7 @@ async function startServer() {
           role: true,
           emailVerified: true,
           createdAt: true,
+          roleAssignments: { select: { role: true } },
           providers: {
             select: {
               id: true,
@@ -299,6 +499,9 @@ async function startServer() {
               slug: true,
               verified: true,
               formalizationStatus: true,
+              status: true,
+              statusReason: true,
+              suspendedUntil: true,
             },
           },
         },
@@ -308,7 +511,17 @@ async function startServer() {
         return res.status(404).json({ success: false, error: "Usuario no encontrado" });
       }
 
-      res.json({ success: true, data: { user } });
+      const roleLabels = Array.from(new Set([user.role, ...user.roleAssignments.map((assignment) => assignment.role)]));
+      res.json({
+        success: true,
+        data: {
+          user: {
+            ...user,
+            roleLabels,
+            providerProfileId: user.providers[0]?.id ?? null,
+          },
+        },
+      });
     } catch (error) {
       console.error("Me error:", error);
       res.status(500).json({ success: false, error: "Error al obtener usuario" });
@@ -524,28 +737,57 @@ async function startServer() {
     }
   });
 
-  // GET Quotes — optionally filtered by ?providerId= or ?senderId=
-  // For MVP: returns threads by providerId (backward compatible)
-  // After auth: use ?senderId= with auth middleware to get user's threads
-  app.get("/api/quotes", async (req, res) => {
+  // GET Quotes — default returns every thread where the authenticated user participates.
+  // Legacy ?providerId= and ?senderId= remain guarded for narrow views.
+  app.get("/api/quotes", authenticate, async (req, res) => {
     try {
       const providerId = req.query.providerId as string | undefined;
       const senderId = req.query.senderId as string | undefined;
+      const { userId } = req.user;
 
       if (senderId) {
+        if (senderId !== userId) {
+          return res.status(403).json({ success: false, error: "No tenés permiso para ver estas solicitudes" });
+        }
         const threads = await getThreadsBySender(senderId);
         return res.json({ success: true, data: threads });
       }
 
       if (providerId) {
+        const ownsProvider = await getProviderOwnedByUser(providerId, userId);
+        if (!ownsProvider) {
+          return res.status(403).json({ success: false, error: "No tenés permiso para ver solicitudes de este proveedor" });
+        }
         const threads = await getThreadsByProvider(providerId);
         return res.json({ success: true, data: threads });
       }
 
-      res.json({ success: true, data: [] });
+      const threads = await getThreadsForParticipant(userId);
+      res.json({ success: true, data: threads });
     } catch (error) {
       console.error("Get quotes error:", error);
       res.status(500).json({ success: false, error: "Error al obtener cotizaciones" });
+    }
+  });
+
+  app.get("/api/quotes/:id", authenticate, async (req, res) => {
+    try {
+      const threadId = req.params.id;
+      const { userId } = req.user;
+      const { thread, role } = await getThreadParticipantRole(threadId, userId);
+
+      if (!thread) {
+        return res.status(404).json({ success: false, error: "Solicitud no encontrada" });
+      }
+      if (!role) {
+        return res.status(403).json({ success: false, error: "No participás en esta solicitud" });
+      }
+
+      const data = await getThreadById(threadId);
+      res.json({ success: true, data });
+    } catch (error) {
+      console.error("Get quote error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener solicitud" });
     }
   });
 
@@ -566,7 +808,7 @@ async function startServer() {
   });
 
   // POST Request Quote — creates a new quote thread
-  app.post("/api/quotes", async (req, res) => {
+  app.post("/api/quotes", authenticate, async (req, res) => {
     try {
       const parsed = quoteRequestSchema.safeParse(req.body);
 
@@ -576,9 +818,48 @@ async function startServer() {
 
       const { providerId, subject, body, catalogItemId } = parsed.data;
 
+      const provider = await prisma.provider.findUnique({
+        where: { id: providerId },
+        select: { id: true, userId: true, status: true, statusReason: true, suspendedUntil: true },
+      });
+
+      if (!provider) {
+        return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      }
+
+      if (provider.userId === req.user.userId) {
+        return res.status(409).json({
+          success: false,
+          error: "No podés solicitar una cotización a tu propio perfil.",
+        });
+      }
+
+      if (provider.status === "SUSPENDED" || provider.status === "BANNED") {
+        return res.status(403).json({
+          success: false,
+          error: provider.status === "BANNED"
+            ? "Este proveedor está baneado y no puede recibir nuevas solicitudes."
+            : "Este proveedor está suspendido temporalmente y no puede recibir nuevas solicitudes.",
+        });
+      }
+
+      if (catalogItemId) {
+        const catalogItem = await prisma.catalogItem.findFirst({
+          where: { id: catalogItemId, providerId },
+          select: { id: true },
+        });
+
+        if (!catalogItem) {
+          return res.status(400).json({
+            success: false,
+            error: "El producto seleccionado no pertenece a este proveedor.",
+          });
+        }
+      }
+
       // For authenticated requests, use the authenticated user as sender
       // For now, use a default senderId (will be replaced when auth is connected)
-      const senderId = (req as any).user?.userId || (req.body.senderId as string) || "anonymous";
+      const senderId = req.user.userId;
 
       const newQuote = await createThread({
         senderId,
@@ -596,21 +877,26 @@ async function startServer() {
   });
 
   // POST Message to Quote Thread
-  app.post("/api/quotes/:id/messages", async (req, res) => {
+  app.post("/api/quotes/:id/messages", authenticate, async (req, res) => {
     try {
       const threadId = req.params.id;
-      const { text, authorRole } = req.body;
+      const parsed = quoteMessageSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "El mensaje es inválido", details: parsed.error.issues });
+      const { text } = parsed.data;
+      const { userId } = req.user;
 
-      if (!text) {
-        return res.status(400).json({ success: false, error: "El mensaje es obligatorio" });
+      const { thread, role } = await getThreadParticipantRole(threadId, userId);
+
+      if (!thread) {
+        return res.status(404).json({ success: false, error: "Solicitud no encontrada" });
       }
 
-      // For authenticated requests, use the authenticated user
-      const authorId = (req as any).user?.userId || req.body.authorId || "anonymous";
-      const role = authorRole || ((req as any).user?.role === "PROVIDER" ? "provider" : "client");
+      if (!role) {
+        return res.status(403).json({ success: false, error: "No participás en esta solicitud" });
+      }
 
       const newMsg = await addMessage(threadId, {
-        authorId,
+        authorId: userId,
         authorRole: role,
         body: text,
       });
@@ -623,30 +909,307 @@ async function startServer() {
   });
 
   // PUT Update Quote Thread Status
-  app.put("/api/quotes/:id", async (req, res) => {
+  app.put("/api/quotes/:id", authenticate, async (req, res) => {
     try {
       const threadId = req.params.id;
-      const { status, quotedPriceLabel, quotedDeliveryTime } = req.body;
+      const parsed = quoteUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "La actualización es inválida", details: parsed.error.issues });
+      const {
+        status,
+        quotedPriceLabel,
+        quotedDeliveryTime,
+        confirmedByRequesterAt,
+        confirmedByProviderAt,
+      } = parsed.data;
+      const { userId } = req.user;
 
-      const existing = await prisma.quoteThread.findUnique({
-        where: { id: threadId },
-        select: { id: true, status: true },
-      });
+      const { thread, role } = await getThreadParticipantRole(threadId, userId);
 
-      if (!existing) {
-        return res.status(404).json({ success: false, error: "Thread no encontrado" });
+      if (!thread) {
+        return res.status(404).json({ success: false, error: "Solicitud no encontrada" });
+      }
+
+      if (!role) {
+        return res.status(403).json({ success: false, error: "No participás en esta solicitud" });
+      }
+
+      if ((quotedPriceLabel !== undefined || quotedDeliveryTime !== undefined || status === "QUOTE_SENT") && role !== "provider") {
+        return res.status(403).json({ success: false, error: "Solo el proveedor puede enviar una cotización" });
+      }
+
+      if (confirmedByRequesterAt && role !== "client") {
+        return res.status(403).json({ success: false, error: "Solo el solicitante puede confirmar esta parte" });
+      }
+
+      if (confirmedByProviderAt && role !== "provider") {
+        return res.status(403).json({ success: false, error: "Solo el proveedor puede confirmar esta parte" });
+      }
+
+      if (status === "QUOTE_ACCEPTED" && role !== "client") {
+        return res.status(403).json({ success: false, error: "Solo el solicitante puede aceptar la cotización" });
+      }
+
+      if (status === "CLOSED_PROVIDER" && role !== "provider") {
+        return res.status(403).json({ success: false, error: "Solo el proveedor puede cerrar su parte" });
+      }
+
+      if (status === "CLOSED_REQUESTER" && role !== "client") {
+        return res.status(403).json({ success: false, error: "Solo el solicitante puede cerrar su parte" });
       }
 
       const updated = await updateThread(threadId, {
         status,
         quotedPriceLabel,
         quotedDeliveryTime,
+        confirmedByRequesterAt: Boolean(confirmedByRequesterAt),
+        confirmedByProviderAt: Boolean(confirmedByProviderAt),
       });
 
       res.json({ success: true, data: updated });
     } catch (error) {
       console.error("Update quote error:", error);
       res.status(500).json({ success: false, error: "Error al actualizar cotización" });
+    }
+  });
+
+  // ──────────────────────────────────────────────────────────
+  // ADMIN REVIEWER / SUPER ADMIN MODERATION ROUTES
+  // ──────────────────────────────────────────────────────────
+
+  const riskReportInclude = {
+    provider: {
+      select: {
+        id: true,
+        displayName: true,
+        slug: true,
+        status: true,
+        statusReason: true,
+        suspendedUntil: true,
+        city: true,
+        category: true,
+      },
+    },
+    reviewedBy: { select: { id: true, name: true, email: true } },
+    escalatedBy: { select: { id: true, name: true, email: true } },
+    resolvedBy: { select: { id: true, name: true, email: true } },
+  } as const;
+
+  app.get("/api/admin/risk-reports", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
+    try {
+      const parsed = riskReportQuerySchema.safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Filtro de estado inválido", details: parsed.error.issues });
+      const { status } = parsed.data;
+      const reports = await prisma.riskReport.findMany({
+        where: status ? { status } : undefined,
+        include: riskReportInclude,
+        orderBy: [{ status: "asc" }, { generatedAt: "desc" }],
+      });
+      res.json({ success: true, data: reports });
+    } catch (error) {
+      console.error("Admin reports error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener reportes" });
+    }
+  });
+
+  app.get("/api/admin/risk-reports/:id", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
+    try {
+      const report = await prisma.riskReport.findUnique({
+        where: { id: req.params.id },
+        include: riskReportInclude,
+      });
+      if (!report) return res.status(404).json({ success: false, error: "Reporte no encontrado" });
+      res.json({ success: true, data: report });
+    } catch (error) {
+      console.error("Admin report detail error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener el reporte" });
+    }
+  });
+
+  app.patch("/api/admin/risk-reports/:id/status", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
+    try {
+      const parsed = riskReportStatusSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Estado de reporte inválido", details: parsed.error.issues });
+      const { userId } = req.user;
+      const { status, reviewerNotes, reason } = parsed.data;
+
+      const roles = await getUserSystemRoles(userId);
+      if (status === "ACTION_TAKEN" && !roles.has("SUPER_ADMIN")) {
+        return res.status(403).json({ success: false, error: "Solo super administración puede resolver reportes con acción tomada" });
+      }
+
+      if ((status === "DISMISSED" || status === "ESCALATED" || status === "ACTION_TAKEN") && !(reason || reviewerNotes)?.trim()) {
+        return res.status(400).json({ success: false, error: "Agregá una razón o nota para esta decisión" });
+      }
+
+      const updateData: Record<string, unknown> = {
+        status,
+        reviewerNotes: reviewerNotes?.trim() || reason?.trim() || null,
+        reviewedAt: new Date(),
+        reviewedByUserId: userId,
+      };
+
+      if (status === "ESCALATED") {
+        updateData.escalatedAt = new Date();
+        updateData.escalatedByUserId = userId;
+      }
+
+      if (status === "ACTION_TAKEN") {
+        updateData.resolvedAt = new Date();
+        updateData.resolvedByUserId = userId;
+      }
+
+      const report = await prisma.riskReport.update({
+        where: { id: req.params.id },
+        data: updateData,
+        include: riskReportInclude,
+      });
+
+      await createModerationAuditLog({
+        actorUserId: userId,
+        action: `REPORT_${status}`,
+        targetType: "RISK_REPORT",
+        targetId: report.id,
+        reason: reason?.trim() || reviewerNotes?.trim() || `Reporte marcado como ${status}`,
+        metadata: { providerId: report.providerId, status },
+      });
+
+      res.json({ success: true, data: report });
+    } catch (error) {
+      console.error("Update risk report status error:", error);
+      res.status(500).json({ success: false, error: "Error al actualizar el reporte" });
+    }
+  });
+
+  app.post("/api/admin/risk-reports/:id/escalate", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
+    try {
+      const parsed = riskReportEscalateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Agregá una nota para escalar el reporte", details: parsed.error.issues });
+      const { userId } = req.user;
+      const { reviewerNotes, reason } = parsed.data;
+      const note = (reviewerNotes?.trim() || reason?.trim())!;
+
+      const report = await prisma.riskReport.update({
+        where: { id: req.params.id },
+        data: {
+          status: "ESCALATED",
+          reviewerNotes: note,
+          reviewedAt: new Date(),
+          reviewedByUserId: userId,
+          escalatedAt: new Date(),
+          escalatedByUserId: userId,
+        },
+        include: riskReportInclude,
+      });
+
+      await createModerationAuditLog({
+        actorUserId: userId,
+        action: "REPORT_ESCALATED",
+        targetType: "RISK_REPORT",
+        targetId: report.id,
+        reason: note,
+        metadata: { providerId: report.providerId, status: "ESCALATED" },
+      });
+
+      res.json({ success: true, data: report });
+    } catch (error) {
+      console.error("Escalate risk report error:", error);
+      res.status(500).json({ success: false, error: "Error al escalar el reporte" });
+    }
+  });
+
+  async function updateProviderModerationStatus(
+    providerId: string,
+    actorUserId: string,
+    status: "ACTIVE" | "SUSPENDED" | "BANNED",
+    reason: string,
+    suspendedUntil?: string | null,
+  ) {
+    const provider = await prisma.provider.findUnique({
+      where: { id: providerId },
+      select: { id: true, status: true, user: { select: { role: true } } },
+    });
+
+    if (!provider) throw new Error("PROVIDER_NOT_FOUND");
+    if (provider.status === "BANNED" && status === "SUSPENDED") throw new Error("INVALID_TRANSITION");
+
+    const updated = await prisma.provider.update({
+      where: { id: providerId },
+      data: {
+        status,
+        statusReason: status === "ACTIVE" ? null : reason,
+        suspendedUntil: status === "SUSPENDED" && suspendedUntil ? new Date(suspendedUntil) : null,
+        statusUpdatedAt: new Date(),
+        statusUpdatedById: actorUserId,
+      },
+    });
+
+    await createModerationAuditLog({
+      actorUserId,
+      action: status === "ACTIVE" ? "PROVIDER_REACTIVATED" : status === "SUSPENDED" ? "PROVIDER_SUSPENDED" : "PROVIDER_BANNED",
+      targetType: "PROVIDER",
+      targetId: providerId,
+      reason,
+      metadata: { previousStatus: provider.status, nextStatus: status, suspendedUntil: suspendedUntil || null },
+    });
+
+    return updated;
+  }
+
+  app.post("/api/admin/providers/:providerId/suspend", authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const parsed = providerSuspendSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Los datos de suspensión son inválidos", details: parsed.error.issues });
+      const { userId } = req.user;
+      const { reason, suspendedUntil } = parsed.data;
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "SUSPENDED", reason, suspendedUntil || null);
+      res.json({ success: true, data: provider });
+    } catch (error) {
+      if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      if ((error as Error).message === "INVALID_TRANSITION") return res.status(409).json({ success: false, error: "Un proveedor baneado no puede pasar a suspendido" });
+      console.error("Suspend provider error:", error);
+      res.status(500).json({ success: false, error: "Error al suspender proveedor" });
+    }
+  });
+
+  app.post("/api/admin/providers/:providerId/ban", authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const parsed = providerModerationReasonSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "El baneo requiere una razón", details: parsed.error.issues });
+      const { userId } = req.user;
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "BANNED", parsed.data.reason);
+      res.json({ success: true, data: provider });
+    } catch (error) {
+      if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      console.error("Ban provider error:", error);
+      res.status(500).json({ success: false, error: "Error al banear proveedor" });
+    }
+  });
+
+  app.post("/api/admin/providers/:providerId/reactivate", authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const parsed = providerModerationReasonSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "La reactivación requiere una razón", details: parsed.error.issues });
+      const { userId } = req.user;
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "ACTIVE", parsed.data.reason);
+      res.json({ success: true, data: provider });
+    } catch (error) {
+      if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      console.error("Reactivate provider error:", error);
+      res.status(500).json({ success: false, error: "Error al reactivar proveedor" });
+    }
+  });
+
+  app.get("/api/admin/audit-log", authenticate, requireSuperAdmin, async (_req, res) => {
+    try {
+      const logs = await prisma.moderationAuditLog.findMany({
+        orderBy: { createdAt: "desc" },
+        take: 50,
+        include: { actor: { select: { id: true, name: true, email: true } } },
+      });
+      res.json({ success: true, data: logs });
+    } catch (error) {
+      console.error("Audit log error:", error);
+      res.status(500).json({ success: false, error: "Error al obtener auditoría" });
     }
   });
 
@@ -666,16 +1229,88 @@ async function startServer() {
     }
   });
 
+  // POST Create Provider Profile
+  app.post("/api/providers", authenticate, async (req, res) => {
+    try {
+      const parsed = providerCreateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Los datos del proveedor son inválidos", details: parsed.error.issues });
+      const { userId } = req.user;
+      const input = parsed.data;
+      const { displayName, category, aboutDescription } = input;
+
+      const baseSlug = slugifyProviderName(displayName);
+      let slug = baseSlug;
+      let suffix = 2;
+      while (await prisma.provider.findUnique({ where: { slug }, select: { id: true } })) {
+        slug = `${baseSlug}-${suffix++}`;
+      }
+
+      const legacyCity = normalizeCity(input.city) || LegacyCity.MANAGUA;
+      const cityRef = await ensureCityReference(legacyCity);
+      const mainCategory = String(input.mainCategory || category).trim();
+      const rootCategory = await ensureCategoryReference(category);
+      const primaryCategory = await ensureCategoryReference(mainCategory, rootCategory.id);
+      const responseTimeHrs = input.responseTimeHrs || 1;
+
+      const provider = await prisma.provider.create({
+        data: {
+          userId,
+          displayName,
+          slug,
+          shortDescription: input.shortDescription || null,
+          aboutDescription,
+          logoUrl: input.logoUrl || null,
+          coverImageUrl: input.coverImageUrl || null,
+          city: legacyCity,
+          cityId: cityRef.id,
+          department: cityRef.departmentId ? cityMetadata[legacyCity].department : null,
+          serviceRadius: input.serviceRadius || null,
+          category,
+          mainCategory,
+          categoryLinks: {
+            create: [
+              { categoryId: rootCategory.id, isPrimary: false },
+              ...(primaryCategory.id !== rootCategory.id ? [{ categoryId: primaryCategory.id, isPrimary: true }] : []),
+            ],
+          },
+          priceRange: input.priceRange || null,
+          availability: normalizeAvailability(input.availability),
+          formalizationStatus: normalizeFormalizationStatus(input.formalizationStatus),
+          responseTimeHrs,
+          metrics: {
+            create: {
+              profileCompleteness: 55,
+              responseTimeHrs,
+              completedRequests: 0,
+              requestsResponded: 0,
+              trustScore: 30,
+            },
+          },
+        },
+      });
+
+      await prisma.user.update({
+        where: { id: userId },
+        data: { role: "PROVIDER" },
+      });
+
+      res.status(201).json({ success: true, data: provider });
+    } catch (e) {
+      console.error("Create provider error:", e);
+      res.status(500).json({ success: false, error: "Error al crear proveedor" });
+    }
+  });
+
   // PUT Update Profile
   app.put("/api/providers/:id", authenticate, async (req, res) => {
     try {
       const providerId = req.params.id;
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
 
       // Verify the authenticated user owns this provider
       const existing = await prisma.provider.findUnique({
         where: { id: providerId },
-        select: { userId: true },
+        select: { userId: true, category: true, mainCategory: true },
       });
 
       if (!existing) {
@@ -690,7 +1325,7 @@ async function startServer() {
         "displayName", "bio", "logoUrl", "coverImageUrl", "city",
         "department", "serviceRadius", "category", "mainCategory", "subcategories",
         "priceMin", "priceMax", "priceRange", "businessHours", "deliveryOptions",
-        "availability", "shortDescription", "aboutDescription", "lat", "lng",
+        "availability", "formalizationStatus", "shortDescription", "aboutDescription", "lat", "lng",
       ];
 
       const updateData: Record<string, any> = {};
@@ -699,10 +1334,36 @@ async function startServer() {
           updateData[field] = req.body[field];
         }
       }
+      if (updateData.city) {
+        updateData.city = normalizeCity(updateData.city);
+        if (updateData.city) {
+          const cityRef = await ensureCityReference(updateData.city);
+          updateData.cityId = cityRef.id;
+          updateData.department = cityMetadata[updateData.city as LegacyCity].department;
+        }
+      }
+      if (updateData.availability) updateData.availability = normalizeAvailability(updateData.availability);
+      if (updateData.formalizationStatus) updateData.formalizationStatus = normalizeFormalizationStatus(updateData.formalizationStatus);
+
+      const categoryChanged = updateData.category !== undefined || updateData.mainCategory !== undefined;
+      const nextCategory = String(updateData.category ?? existing.category).trim();
+      const nextMainCategory = String(updateData.mainCategory ?? existing.mainCategory ?? nextCategory).trim();
+      const rootCategory = categoryChanged ? await ensureCategoryReference(nextCategory) : null;
+      const primaryCategory = categoryChanged ? await ensureCategoryReference(nextMainCategory, rootCategory!.id) : null;
+      const categoryLinks = categoryChanged && rootCategory && primaryCategory ? {
+        deleteMany: {},
+        create: [
+          { categoryId: rootCategory.id, isPrimary: false },
+          ...(primaryCategory.id !== rootCategory.id ? [{ categoryId: primaryCategory.id, isPrimary: true }] : []),
+        ],
+      } : undefined;
 
       const updated = await prisma.provider.update({
         where: { id: providerId },
-        data: updateData,
+        data: {
+          ...updateData,
+          ...(categoryLinks ? { categoryLinks } : {}),
+        },
       });
 
       res.json({ success: true, data: updated });
@@ -717,7 +1378,12 @@ async function startServer() {
     try {
       const item = await prisma.catalogItem.findUnique({
         where: { id: req.params.id },
-        include: { provider: { select: { id: true, displayName: true, city: true, trustScore: true } } },
+        include: {
+          cityRef: { include: { department: true } },
+          categoryLinks: { include: { category: true } },
+          metrics: true,
+          provider: { select: { id: true, displayName: true, city: true, cityRef: true, trustScore: true, metrics: true } },
+        },
       });
       if (!item) {
         return res.status(404).json({ success: false, error: "Item no encontrado" });
@@ -732,7 +1398,7 @@ async function startServer() {
   // POST Create Catalog Item
   app.post("/api/catalog-items", authenticate, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
       const { providerId, title, itemType, category, subcategory, description, priceMin, priceMax, currency, priceUnit, city, availabilityStatus, deliveryAvailable, pickupAvailable, mainImageUrl } = req.body;
 
       if (!providerId || !title || !itemType || !category || !description) {
@@ -747,6 +1413,11 @@ async function startServer() {
         return res.status(403).json({ success: false, error: "No tenés permiso para agregar items a este proveedor" });
       }
 
+      const legacyCity = normalizeCity(city) || LegacyCity.MANAGUA;
+      const cityRef = await ensureCityReference(legacyCity);
+      const rootCategory = await ensureCategoryReference(category);
+      const primaryCategory = await ensureCategoryReference(subcategory || category, rootCategory.id);
+
       const item = await prisma.catalogItem.create({
         data: {
           providerId,
@@ -759,11 +1430,26 @@ async function startServer() {
           priceMax: priceMax ? Number(priceMax) : null,
           currency: currency || "NIO",
           priceUnit: priceUnit || null,
-          city: city || "MANAGUA",
+          city: legacyCity,
+          cityId: cityRef.id,
           availabilityStatus: availabilityStatus || "DISPONIBLE",
           deliveryAvailable: deliveryAvailable || false,
           pickupAvailable: pickupAvailable || false,
           mainImageUrl: mainImageUrl || null,
+          categoryLinks: {
+            create: [
+              ...(primaryCategory.id !== rootCategory.id
+                ? [{ categoryId: primaryCategory.id, isPrimary: true }]
+                : [{ categoryId: rootCategory.id, isPrimary: true }]),
+            ],
+          },
+          metrics: {
+            create: {
+              viewCount: 0,
+              inquiryCount: 0,
+              requestCount: 0,
+            },
+          },
         },
       });
 
@@ -777,7 +1463,7 @@ async function startServer() {
   // PUT Update Catalog Item
   app.put("/api/catalog-items/:id", authenticate, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
       const itemId = req.params.id;
 
       const existing = await prisma.catalogItem.findUnique({
@@ -805,9 +1491,33 @@ async function startServer() {
         }
       }
 
+      if (updateData.city) {
+        const legacyCity = normalizeCity(updateData.city) || LegacyCity.MANAGUA;
+        const cityRef = await ensureCityReference(legacyCity);
+        updateData.city = legacyCity;
+        updateData.cityId = cityRef.id;
+      }
+
+      const categoryChanged = updateData.category !== undefined || updateData.subcategory !== undefined;
+      const nextCategory = String(updateData.category ?? existing.category).trim();
+      const nextSubcategory = String(updateData.subcategory ?? existing.subcategory ?? nextCategory).trim();
+      const rootCategory = categoryChanged ? await ensureCategoryReference(nextCategory) : null;
+      const primaryCategory = categoryChanged ? await ensureCategoryReference(nextSubcategory, rootCategory!.id) : null;
+      const categoryLinks = categoryChanged && rootCategory && primaryCategory ? {
+        deleteMany: {},
+        create: [
+          ...(primaryCategory.id !== rootCategory.id
+            ? [{ categoryId: primaryCategory.id, isPrimary: true }]
+            : [{ categoryId: rootCategory.id, isPrimary: true }]),
+        ],
+      } : undefined;
+
       const updated = await prisma.catalogItem.update({
         where: { id: itemId },
-        data: updateData,
+        data: {
+          ...updateData,
+          ...(categoryLinks ? { categoryLinks } : {}),
+        },
       });
 
       res.json({ success: true, data: updated });
@@ -820,7 +1530,7 @@ async function startServer() {
   // DELETE Catalog Item
   app.delete("/api/catalog-items/:id", authenticate, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
       const itemId = req.params.id;
 
       const existing = await prisma.catalogItem.findUnique({
@@ -933,28 +1643,76 @@ async function startServer() {
   // POST Create Review
   app.post("/api/reviews", authenticate, async (req, res) => {
     try {
-      const { providerId, qualityScore, responseTimeScore, fulfillmentScore, communicationScore, valueScore, comment } = req.body;
-      const { userId } = (req as any).user;
+      const parsed = reviewCreateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Los datos de la reseña son inválidos", details: parsed.error.issues });
+      const { providerId, requestId, qualityScore, responseTimeScore, fulfillmentScore, communicationScore, valueScore, comment } = parsed.data;
+      const { userId } = req.user;
 
-      if (!providerId || !qualityScore) {
-        return res.status(400).json({ success: false, error: "Faltan campos obligatorios" });
+      const request = await prisma.quoteThread.findUnique({
+        where: { id: requestId },
+        include: { provider: { select: { id: true, userId: true } } },
+      });
+
+      if (!request || request.providerId !== providerId) {
+        return res.status(404).json({ success: false, error: "Solicitud no encontrada para este proveedor" });
       }
 
-      const generalScore = (qualityScore + (responseTimeScore || qualityScore) + (fulfillmentScore || qualityScore) + (communicationScore || qualityScore) + (valueScore || qualityScore)) / 5;
+      if (request.status !== "COMPLETED" || !request.completedAt) {
+        return res.status(409).json({ success: false, error: "La reseña se habilita cuando la solicitud está completada por ambas partes" });
+      }
+
+      if (request.senderId !== userId) {
+        return res.status(403).json({ success: false, error: "Solo el solicitante puede reseñar esta solicitud" });
+      }
+
+      if (request.provider.userId === userId) {
+        return res.status(403).json({ success: false, error: "No podés reseñar tu propio perfil" });
+      }
+
+      const generalScore = (qualityScore + (responseTimeScore ?? qualityScore) + (fulfillmentScore ?? qualityScore) + (communicationScore ?? qualityScore) + (valueScore ?? qualityScore)) / 5;
 
       const review = await prisma.review.create({
         data: {
           providerId,
           reviewerId: userId,
+          requestId,
           qualityScore,
-          responseTimeScore: responseTimeScore || qualityScore,
-          fulfillmentScore: fulfillmentScore || qualityScore,
-          communicationScore: communicationScore || qualityScore,
-          valueScore: valueScore || qualityScore,
+          responseTimeScore: responseTimeScore ?? qualityScore,
+          fulfillmentScore: fulfillmentScore ?? qualityScore,
+          communicationScore: communicationScore ?? qualityScore,
+          valueScore: valueScore ?? qualityScore,
           generalScore,
           comment,
+          analysis: {
+            create: {
+              sentimentScore: null,
+              qualitySignals: { verifiedRequest: true, bilateralCompletion: true },
+              moderationFlags: { suspicious: false },
+              generalScore,
+              algorithmVersion: "v1-route-basic",
+            },
+          },
         },
-        include: { reviewer: { select: { id: true, name: true, image: true } } },
+        include: { reviewer: { select: { id: true, name: true, image: true } }, analysis: true },
+      });
+
+      const reviewStats = await prisma.review.aggregate({
+        where: { providerId },
+        _avg: { generalScore: true },
+        _count: { id: true },
+      });
+
+      await prisma.providerMetrics.upsert({
+        where: { providerId },
+        update: {
+          avgRating: reviewStats._avg.generalScore,
+          totalVerifiedReviews: reviewStats._count.id,
+        },
+        create: {
+          providerId,
+          avgRating: reviewStats._avg.generalScore,
+          totalVerifiedReviews: reviewStats._count.id,
+        },
       });
 
       res.status(201).json({ success: true, data: review });

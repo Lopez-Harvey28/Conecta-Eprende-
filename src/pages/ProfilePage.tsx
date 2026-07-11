@@ -222,9 +222,9 @@ export default function ProfilePage() {
              <div className="text-3xl font-extrabold text-[var(--brand)]">{provider?.score || 0}</div>
           </div>
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm">
-             <div className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Formalización</div>
+             <div className="text-slate-500 text-sm font-bold uppercase tracking-wider mb-2">Perfil comercial</div>
              <div className="text-sm font-extrabold text-slate-900 mt-2 flex items-center gap-2">
-               <Building className="w-5 h-5 text-green-500" /> {provider?.formalizationStatus || "INFORMAL"}
+               <Building className="w-5 h-5 text-green-500" /> Información pública activa
              </div>
           </div>
         </div>

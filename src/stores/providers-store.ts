@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { seedOffers, seedProviders, seedReviews } from "../lib/mvp-data";
 
 export interface ProviderSearchResult {
   id: string;
@@ -11,6 +12,9 @@ export interface ProviderSearchResult {
   shortDescription: string | null;
   priceRange: string | null;
   availability: string;
+  status: string;
+  statusReason: string | null;
+  suspendedUntil: string | null;
   verified: boolean;
   verificationLevel: string | null;
   formalizationStatus: string;
@@ -41,6 +45,77 @@ interface ProvidersState {
   searchProviders: (params: { q?: string; city?: string }) => Promise<void>;
   getProvider: (idOrSlug: string) => Promise<FullProvider | null>;
   clearCurrentProvider: () => void;
+}
+
+function getLocalProviderFallback(idOrSlug: string): FullProvider | null {
+  const provider = seedProviders.find(item => item.id === idOrSlug);
+  if (!provider) return null;
+
+  const catalogItems = seedOffers
+    .filter(item => item.providerId === provider.id)
+    .map(item => ({
+      id: item.id,
+      providerId: item.providerId,
+      title: item.name,
+      itemType: item.type,
+      category: item.category,
+      description: item.fullDescription,
+      priceMin: null,
+      priceMax: null,
+      currency: "NIO",
+      priceUnit: null,
+      city: item.cityCoverage[0] ?? provider.city,
+      availabilityStatus: item.status === "ACTIVE" ? "DISPONIBLE" : "NO_DISPONIBLE_TEMPORALMENTE",
+      mainImageUrl: item.imageUrls[0] ?? null,
+      viewCount: item.viewCount,
+      inquiryCount: item.inquiryCount,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }));
+
+  const reviews = seedReviews.filter(item => item.providerId === provider.id).map(item => ({
+    id: item.id,
+    providerId: item.providerId,
+    reviewerId: item.reviewerId,
+    generalScore: item.score,
+    comment: item.text,
+    createdAt: item.createdAt,
+  }));
+
+  return {
+    provider: {
+      id: provider.id,
+      userId: provider.ownerUserId,
+      displayName: provider.publicName,
+      slug: provider.id,
+      bio: provider.description,
+      logoUrl: provider.avatarUrl ?? null,
+      coverImageUrl: provider.coverImageUrl ?? provider.portfolioImages[0] ?? null,
+      city: provider.city,
+      serviceRadius: provider.serviceArea[0] ?? provider.city,
+      category: provider.category,
+      mainCategory: provider.category,
+      shortDescription: provider.tagline ?? provider.description,
+      aboutDescription: provider.description,
+      priceRange: provider.priceRange,
+      availability: provider.availability === "AVAILABLE" ? "DISPONIBLE" : provider.availability === "BUSY" ? "OCUPADO" : "NO_DISPONIBLE_TEMPORALMENTE",
+      verified: provider.verificationLevel === "COMPLETE",
+      verificationLevel: provider.verificationLevel,
+      formalizationStatus: provider.formalizationStatus,
+      trustScore: provider.trustScore,
+      responseTimeHrs: provider.responseTimeHrs,
+      completedRequests: provider.completedRequests,
+      profileCompleteness: provider.profileCompleteness,
+      lat: provider.lat,
+      lng: provider.lng,
+    },
+    catalogItems,
+    photos: provider.portfolioImages.map((imageUrl, index) => ({ id: `${provider.id}-photo-${index}`, providerId: provider.id, imageUrl, isFeatured: index === 0 })),
+    medals: provider.medals.map((medal, index) => ({ id: `${provider.id}-medal-${index}`, medalType: medal })),
+    reviews,
+    averageReviewScore: provider.avgRating ?? null,
+    completedRequestsCount: provider.completedRequests,
+  };
 }
 
 export const useProvidersStore = create<ProvidersState>((set, get) => ({
@@ -83,16 +158,18 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
       const data = await res.json();
 
       if (!res.ok || !data.success) {
-        set({ currentProvider: null, isLoading: false });
-        return null;
+        const fallback = getLocalProviderFallback(idOrSlug);
+        set({ currentProvider: fallback, isLoading: false });
+        return fallback;
       }
 
       set({ currentProvider: data.data, isLoading: false });
       return data.data;
     } catch (error) {
       console.error("getProvider error:", error);
-      set({ error: (error as Error).message, isLoading: false });
-      return null;
+      const fallback = getLocalProviderFallback(idOrSlug);
+      set({ currentProvider: fallback, error: fallback ? null : (error as Error).message, isLoading: false });
+      return fallback;
     }
   },
 

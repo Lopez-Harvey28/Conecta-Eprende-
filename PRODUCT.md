@@ -10,7 +10,7 @@ Personas emprendedoras, trabajadoras independientes, MIPYMES y proveedores de Ni
 
 ## Product Purpose
 
-Conecta Emprende AI convierte necesidades escritas en lenguaje cotidiano en conexiones útiles con proveedores locales. El producto debe hacer demostrable el recorrido completo desde buscar y comparar hasta solicitar una cotización, confirmar el trabajo, reseñar una experiencia verificada y avanzar hacia la formalización.
+Conecta Emprende AI convierte necesidades escritas en lenguaje cotidiano en conexiones útiles con proveedores locales. El producto debe hacer demostrable el recorrido completo desde buscar y comparar hasta solicitar una cotización, confirmar el trabajo, reseñar una experiencia verificada y construir confianza comercial dentro de la app.
 
 ## Brand Personality
 
@@ -26,7 +26,7 @@ No debe parecer un directorio genérico, un tablero SaaS lleno de tarjetas decor
 2. Cada pantalla conduce a una acción real o explica honestamente por qué una acción no está disponible.
 3. La búsqueda natural debe sentirse sencilla, pero sus inferencias y filtros deben permanecer visibles y corregibles.
 4. La identidad local vive en los datos, las ciudades, el lenguaje y los negocios, no en decoración folclórica superficial.
-5. La formalización es acompañamiento progresivo, no una promesa de integración gubernamental.
+5. La formalización legal queda como roadmap futuro; el MVP activo no promete trámites, validación MIPYME ni integración gubernamental.
 
 ## Accessibility & Inclusion
 

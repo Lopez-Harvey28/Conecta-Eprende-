@@ -1,26 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
-  ArrowLeft, Award, BadgeCheck, Bookmark, BriefcaseBusiness, CalendarCheck, Clock3,
+  ArrowLeft, Award, BadgeCheck, Bookmark, CalendarCheck, Clock3,
   ExternalLink, Flag, MapPin, MessageCircle, Package, ShieldCheck, Star, X,
 } from "lucide-react";
 import { useProvidersStore } from "../stores/providers-store";
 import { useAuthStore } from "../stores/auth-store";
-import { availabilityLabel, formalizationLabel, priceLabel } from "../lib/mvp-data";
-import { EmptyState, FormalizationBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
+import { EmptyState, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
+import { getProviderStatusLabel } from "../lib/identity";
 
 const availabilityLabelMap: Record<string, string> = {
   DISPONIBLE: "Disponible",
   OCUPADO: "Ocupado",
   BAJO_PEDIDO: "Bajo pedido",
   NO_DISPONIBLE_TEMPORALMENTE: "No disponible temporalmente",
-};
-
-const formalizationLabelMap: Record<string, string> = {
-  INFORMAL: "Informal",
-  EN_PROCESO: "En proceso",
-  MIPYME_FORMAL: "MIPYME formal",
-  DOCUMENTOS_PENDIENTES: "Documentos pendientes",
 };
 
 const priceLabelMap: Record<string, string> = {
@@ -106,7 +99,11 @@ export default function ProviderPage() {
     );
   }
 
-  const isOwnProfile = user?.providers?.[0]?.id === provider.id;
+  const isOwnProfile = (user?.providers?.[0]?.id || user?.providerProfileId) === provider.id;
+  const providerStatus = provider.status || "ACTIVE";
+  const isRestrictedProvider = providerStatus === "SUSPENDED" || providerStatus === "BANNED";
+  const activeOfferCount = activeItems.length;
+  const publicProfileSignal = trustScore >= 80 && activeOfferCount > 0 ? "Perfil comercial sólido" : "Perfil en construcción";
 
   return (
     <div className="provider-page">
@@ -131,12 +128,22 @@ export default function ProviderPage() {
           <div className="badges">
             <TrustBadge score={trustScore} />
             <VerificationBadge level={(provider.verificationLevel as any) || "UNVERIFIED"} />
-            <FormalizationBadge status={(provider.formalizationStatus as any) || "INFORMAL"} />
+            <span className="badge"><ShieldCheck />{publicProfileSignal}</span>
           </div>
           <div className="provider-primary-actions">
-            <Link className="button primary" to={`/requests/new?providerId=${provider.id}`}>
-              <MessageCircle /> Chatear y solicitar cotización
-            </Link>
+            {isRestrictedProvider ? (
+              <span className="button secondary disabled">
+                {providerStatus === "BANNED" ? "Este proveedor no puede recibir solicitudes" : "Proveedor suspendido temporalmente"}
+              </span>
+            ) : isOwnProfile ? (
+              <Link className="button primary" to="/me/profile/edit">
+                Editar mi perfil público
+              </Link>
+            ) : (
+              <Link className="button primary" to={`/requests/new?providerId=${provider.id}`}>
+                <MessageCircle /> Chatear y solicitar cotización
+              </Link>
+            )}
             <a className="button secondary" href="#ofertas">
               <Package /> Ver productos y servicios
             </a>
@@ -146,6 +153,20 @@ export default function ProviderPage() {
 
       <div className="provider-grid">
         <main>
+          {isRestrictedProvider && (
+            <section className={`provider-status-banner ${providerStatus.toLowerCase()}`}>
+              <h2>Perfil proveedor {getProviderStatusLabel(providerStatus).toLowerCase()}</h2>
+              <p>
+                {providerStatus === "BANNED"
+                  ? "Este perfil no puede recibir nuevas solicitudes."
+                  : "Este perfil está suspendido temporalmente y no puede recibir nuevas solicitudes."}
+                {provider.statusReason ? ` Razón: ${provider.statusReason}` : ""}
+                {provider.suspendedUntil ? ` Hasta: ${new Date(provider.suspendedUntil).toLocaleDateString("es-NI")}.` : ""}
+              </p>
+              {isOwnProfile && <p className="form-note">Como dueño del perfil, podés revisar esta restricción con administración antes de operar de nuevo.</p>}
+            </section>
+          )}
+
           <section className="content-section">
             <div className="section-heading">
               <h2>Acerca del negocio</h2>
@@ -218,9 +239,17 @@ export default function ProviderPage() {
                         </div>
                       </dl>
                       <div className="card-actions">
-                        <Link className="button primary" to={`/requests/new?providerId=${provider.id}&productId=${offer.id}`}>
-                          Consultar por este producto
-                        </Link>
+                        {isRestrictedProvider ? (
+                          <span className="button secondary disabled">No disponible por estado del perfil</span>
+                        ) : isOwnProfile ? (
+                          <Link className="button primary" to={`/me/products/${offer.id}/edit`}>
+                            Editar oferta
+                          </Link>
+                        ) : (
+                          <Link className="button primary" to={`/requests/new?providerId=${provider.id}&productId=${offer.id}`}>
+                            Consultar por este producto
+                          </Link>
+                        )}
                         <Link className="button secondary" to={`/providers/${provider.id}/products/${offer.id}`}>
                           Ver detalle
                         </Link>
@@ -302,16 +331,12 @@ export default function ProviderPage() {
           </section>
 
           <section>
-            <h2><BriefcaseBusiness /> Formalización</h2>
-            <FormalizationBadge status={(provider.formalizationStatus as any) || "INFORMAL"} />
+            <h2><ShieldCheck /> Señales del perfil</h2>
+            <span className="badge"><ShieldCheck />{publicProfileSignal}</span>
             <p>
-              {provider.formalizationStatus === "MIPYME_FORMAL"
-                ? "Este negocio muestra estado MIPYME formal."
-                : provider.formalizationStatus === "EN_PROCESO"
-                ? "Está organizando su información para avanzar en formalización."
-                : "Puede usar la guía para preparar su proceso de formalización."}
+              Esta señal combina información pública del perfil, catálogo activo, verificación y actividad confirmada dentro de la app.
             </p>
-            <Link className="text-link" to="/formalization">Ver guía de formalización</Link>
+            <Link className="text-link" to="/trust">Ver reglas de confianza</Link>
           </section>
 
           <section>

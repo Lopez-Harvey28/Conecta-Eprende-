@@ -1,5 +1,5 @@
 import { Outlet, Link, useLocation } from 'react-router-dom';
-import { MessageSquare, ShieldCheck, User } from 'lucide-react';
+import { MessageSquare, User } from 'lucide-react';
 
 export default function DashboardLayout() {
   const location = useLocation();
@@ -7,7 +7,6 @@ export default function DashboardLayout() {
   const navItems = [
     { name: 'Perfil', path: '/dashboard/perfil', icon: User },
     { name: 'Cotizaciones', path: '/dashboard/cotizaciones', icon: MessageSquare },
-    { name: 'Formalización', path: '/dashboard/formalizacion', icon: ShieldCheck },
   ];
 
   return (

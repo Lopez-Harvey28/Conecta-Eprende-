@@ -4,20 +4,14 @@ import { CalendarCheck, List, Map, MapPin, Search, SlidersHorizontal, Sparkles }
 import MvpProviderMap, { type SearchMapProvider } from "../components/map/MvpProviderMap";
 import { CATEGORY_OPTIONS, CREATIVE_CITIES, type CreativeCity, type PriceRange } from "../lib/mvp-data";
 import { useProvidersStore, type ProviderSearchResult } from "../stores/providers-store";
-import { AvailabilityBadge, EmptyState, FormalizationBadge, PriceBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
+import { useAuthStore } from "../stores/auth-store";
+import { AvailabilityBadge, EmptyState, PriceBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
 
 const availabilityLabel: Record<string, string> = {
   DISPONIBLE: "Disponible",
   OCUPADO: "Ocupado",
   BAJO_PEDIDO: "Bajo pedido",
   NO_DISPONIBLE_TEMPORALMENTE: "No disponible temporalmente",
-};
-
-const formalizationLabel: Record<string, string> = {
-  INFORMAL: "Informal",
-  EN_PROCESO: "En proceso",
-  MIPYME_FORMAL: "MIPYME formal",
-  DOCUMENTOS_PENDIENTES: "Documentos pendientes",
 };
 
 const priceLabel: Record<string, string> = {
@@ -64,13 +58,13 @@ function extractIntent(query: string) {
 
 export default function SearchPage() {
   const { providers, searchProviders, isLoading } = useProvidersStore();
+  const { user } = useAuthStore();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState(params.get("query") || "");
   const [city, setCity] = useState(params.get("city") || "");
   const [category, setCategory] = useState("");
   const [price, setPrice] = useState("");
-  const [formal, setFormal] = useState("");
   const [trust, setTrust] = useState(0);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -78,6 +72,7 @@ export default function SearchPage() {
   const cardRefs = useRef<Record<string, HTMLElement | null>>({});
 
   const intent = useMemo(() => extractIntent(query), [query]);
+  const ownedProviderId = user?.providers?.[0]?.id || user?.providerProfileId;
 
   useEffect(() => {
     searchProviders({ q: params.get("query") || undefined, city: params.get("city") || undefined });
@@ -94,12 +89,13 @@ export default function SearchPage() {
           (!cityTarget || provider.city === cityTarget) &&
           (!categoryTarget || norm(provider.category).includes(norm(categoryTarget))) &&
           (!price || provider.priceRange === price) &&
-          (!formal || provider.formalizationStatus === formal) &&
           provider.trustScore >= trust;
 
         const proximity = cityTarget ? (provider.city === cityTarget ? 100 : 25) : 70;
         const priceMatch = intent.budget ? (provider.priceRange === intent.budget ? 100 : 40) : 70;
-        const availabilityScore = provider.availability === "DISPONIBLE" ? 100 : provider.availability === "OCUPADO" ? 50 : 0;
+        const availabilityScore = provider.status === "SUSPENDED" || provider.status === "BANNED"
+          ? -100
+          : provider.availability === "DISPONIBLE" ? 100 : provider.availability === "OCUPADO" ? 50 : 0;
 
         return {
           ...provider,
@@ -109,7 +105,7 @@ export default function SearchPage() {
       })
       .filter((provider: any) => provider.match)
       .sort((a: any, b: any) => b.rank - a.rank);
-  }, [providers, query, city, category, price, formal, trust, intent]);
+  }, [providers, query, city, category, price, trust, intent]);
 
   const mapProviders = useMemo<SearchMapProvider[]>(() => {
     return results.map((provider: any) => ({
@@ -121,13 +117,17 @@ export default function SearchPage() {
       lng: provider.lng,
       trustScore: provider.trustScore,
       availabilityLabel: availabilityLabel[provider.availability] || provider.availability,
+      status: provider.status,
+      statusReason: provider.statusReason,
+      suspendedUntil: provider.suspendedUntil,
       priceLabel: priceLabel[provider.priceRange] || provider.priceRange || "",
       verificationLabel: { UNVERIFIED: "Sin verificar", PHONE: "Teléfono verificado", COMPLETE: "Perfil verificado" }[provider.verificationLevel] || provider.verificationLevel || "Sin verificar",
-      formalizationLabel: formalizationLabel[provider.formalizationStatus] || provider.formalizationStatus || "",
+      profileSignalLabel: provider.trustScore >= 80 ? "Perfil comercial sólido" : "Perfil en construcción",
       description: provider.shortDescription || "",
       image: provider.photos?.[0] || "",
+      isOwnProfile: provider.id === ownedProviderId,
     }));
-  }, [results]);
+  }, [results, ownedProviderId]);
 
   useEffect(() => {
     if (selectedId) {
@@ -176,12 +176,6 @@ export default function SearchPage() {
               {Object.entries(priceLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
-          <label>Formalización
-            <select value={formal} onChange={event => setFormal(event.target.value)}>
-              <option value="">Cualquier estado</option>
-              {Object.entries(formalizationLabel).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-            </select>
-          </label>
           <label>Confianza mínima <strong>{trust}</strong>
             <input type="range" min="0" max="90" step="10" value={trust} onChange={event => setTrust(Number(event.target.value))} />
           </label>
@@ -224,7 +218,13 @@ export default function SearchPage() {
                   onMouseLeave={() => setHoveredId(null)}
                   onClick={() => setSelectedId(provider.id)}
                 >
-                  <img src={provider.photos?.[0] || ""} alt="" />
+                  {provider.photos?.[0] ? (
+                    <img src={provider.photos[0]} alt="" />
+                  ) : (
+                    <div className="provider-result-image-placeholder" aria-hidden="true">
+                      <MapPin />
+                    </div>
+                  )}
                   <div className="provider-body">
                     <div className="provider-title">
                       <div>
@@ -239,14 +239,19 @@ export default function SearchPage() {
                       {provider.priceRange && <PriceBadge value={provider.priceRange as any} />}
                       <AvailabilityBadge value={provider.availability as any} />
                       <VerificationBadge level={provider.verificationLevel as any} />
-                      <FormalizationBadge status={provider.formalizationStatus as any} />
                     </div>
                     <div className="recommendation">
                       <Sparkles /> Recomendado porque combina {provider.trustScore >= 80 ? "confianza alta" : "experiencia local"} y {availabilityLabel[provider.availability]?.toLowerCase() || "disponibilidad"}.
                     </div>
                     <div className="card-actions">
                       <Link className="button secondary" to={`/providers/${provider.id}`}>Ver perfil</Link>
-                      <button className="button primary" onClick={() => navigate(`/requests/new?providerId=${provider.id}`)}>Solicitar cotización</button>
+                      {provider.status === "SUSPENDED" || provider.status === "BANNED" ? (
+                        <span className="button secondary disabled">{provider.status === "BANNED" ? "Proveedor baneado" : "Proveedor suspendido"}</span>
+                      ) : provider.id === ownedProviderId ? (
+                        <Link className="button primary" to="/me/profile/edit">Editar mi perfil</Link>
+                      ) : (
+                        <button className="button primary" onClick={() => navigate(`/requests/new?providerId=${provider.id}`)}>Solicitar cotización</button>
+                      )}
                     </div>
                   </div>
                 </article>

@@ -15,6 +15,7 @@ import MyProfileDashboardPage from "./pages/MyProfileDashboardPage";
 import { ManageOffersPage, OfferDetailPage, OfferEditorPage } from "./pages/OfferPages";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import DemoProfileSwitcher from "./components/dev/DemoProfileSwitcher";
 
 export default function App() {
   return (
@@ -46,6 +47,22 @@ export default function App() {
             }
           />
           <Route
+            path="/requests/sent"
+            element={
+              <ProtectedRoute>
+                <RequestsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/requests/received"
+            element={
+              <ProtectedRoute>
+                <RequestsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/requests/new"
             element={
               <ProtectedRoute>
@@ -70,7 +87,7 @@ export default function App() {
             }
           />
 
-          {/* Protected: /formalization */}
+          {/* Legacy roadmap-only route: not part of primary MVP navigation */}
           <Route
             path="/formalization"
             element={
@@ -83,6 +100,30 @@ export default function App() {
           {/* Protected: /me and sub-routes */}
           <Route
             path="/me"
+            element={
+              <ProtectedRoute>
+                <MyProfileDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/profile/me"
+            element={
+              <ProtectedRoute>
+                <MyProfileDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/provider/me"
+            element={
+              <ProtectedRoute>
+                <MyProfileDashboardPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/provider/create"
             element={
               <ProtectedRoute>
                 <MyProfileDashboardPage />
@@ -136,7 +177,15 @@ export default function App() {
           <Route
             path="/admin/reports"
             element={
-              <ProtectedRoute allowedRoles={["ADMIN"]}>
+              <ProtectedRoute allowedRoles={["ADMIN", "ADMIN_REVIEWER", "SUPER_ADMIN"]}>
+                <AdminReportsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/risk-reports"
+            element={
+              <ProtectedRoute allowedRoles={["ADMIN", "ADMIN_REVIEWER", "SUPER_ADMIN"]}>
                 <AdminReportsPage />
               </ProtectedRoute>
             }
@@ -145,12 +194,13 @@ export default function App() {
           {/* Redirects */}
           <Route path="/dashboard/perfil" element={<Navigate to="/me" replace />} />
           <Route path="/dashboard/cotizaciones" element={<Navigate to="/requests" replace />} />
-          <Route path="/dashboard/formalizacion" element={<Navigate to="/formalization" replace />} />
+          <Route path="/dashboard/formalizacion" element={<Navigate to="/me" replace />} />
 
           {/* 404 */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Route>
       </Routes>
+      <DemoProfileSwitcher />
     </BrowserRouter>
   );
 }

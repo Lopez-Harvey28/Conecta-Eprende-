@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle2, Circle, MessageCircle, Search, Send, Star, UserRound } from "lucide-react";
 import { CREATIVE_CITIES, priceLabel, type PriceRange } from "../lib/mvp-data";
@@ -31,7 +31,6 @@ export function NewRequestPage() {
   const productId = params.get("productId");
   const { getProvider, currentProvider } = useProvidersStore();
   const { createThread } = useQuotesStore();
-  const { user } = useAuthStore();
   const navigate = useNavigate();
 
   const [form, setForm] = useState({
@@ -47,17 +46,11 @@ export function NewRequestPage() {
 
   const provider = currentProvider?.provider;
 
-  useState(() => {
+  useEffect(() => {
     if (providerId) {
       getProvider(providerId);
     }
-  });
-
-  useState(() => {
-    if (productId) {
-      // Try to find the offer in provider's catalog items
-    }
-  });
+  }, [providerId, getProvider]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -77,6 +70,8 @@ export function NewRequestPage() {
       });
       if (thread) {
         navigate(`/requests/${thread.id}/chat`);
+      } else {
+        setErrors({ submit: "No se pudo crear la solicitud. RevisÃ¡ que no sea tu propio perfil e intentÃ¡ de nuevo." });
       }
     } catch (e) {
       setErrors({ submit: "No se pudo crear la solicitud. Intentá de nuevo." });
@@ -176,19 +171,16 @@ export function NewRequestPage() {
 
 export function RequestsPage() {
   const { user, isAuthenticated } = useAuthStore();
-  const { threads, fetchThreadsByProvider, fetchThreadsBySender, isLoading } = useQuotesStore();
-  const { currentProvider } = useProvidersStore();
+  const { threads, fetchMyThreads, clearThreads, isLoading } = useQuotesStore();
   const [tab, setTab] = useState(0);
-  const [activeTab, setActiveTab] = useState("");
 
-  useState(() => {
-    if (!isAuthenticated || !user) return;
-    if (user.role === "PROVIDER" && user.providers?.[0]?.id) {
-      fetchThreadsByProvider(user.providers[0].id);
-    } else {
-      fetchThreadsBySender(user.id);
+  useEffect(() => {
+    if (!isAuthenticated || !user) {
+      clearThreads();
+      return;
     }
-  });
+    fetchMyThreads();
+  }, [isAuthenticated, user?.id, fetchMyThreads, clearThreads]);
 
   const list = threads.filter(thread => tabs[tab].statuses.includes(thread.status));
 
@@ -258,17 +250,21 @@ export function RequestDetailPage() {
   const thread = currentThread;
   const provider = currentProvider?.provider;
 
-  useState(() => {
+  useEffect(() => {
     if (requestId) {
       getThread(requestId);
     }
-  });
+  }, [requestId, getThread]);
 
-  useState(() => {
+  useEffect(() => {
     if (thread?.providerId) {
       getProvider(thread.providerId);
     }
-  });
+  }, [thread?.providerId, getProvider]);
+
+  const providerIdForUser = user?.providers?.[0]?.id || user?.providerProfileId;
+  const isRequester = !!user && thread?.senderId === user.id;
+  const isProviderParticipant = !!providerIdForUser && thread?.providerId === providerIdForUser;
 
   const handleConfirm = async (as: "requester" | "provider") => {
     if (!thread) return;
@@ -287,7 +283,7 @@ export function RequestDetailPage() {
     if (!thread) return;
     try {
       await updateThread(thread.id, {
-        status: user?.role === "PROVIDER" ? "CLOSED_PROVIDER" : "CLOSED_REQUESTER",
+        status: isProviderParticipant ? "CLOSED_PROVIDER" : "CLOSED_REQUESTER",
       });
     } catch (e) {
       console.error("Close error:", e);
@@ -305,6 +301,7 @@ export function RequestDetailPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           providerId: thread.providerId,
+          requestId: thread.id,
           qualityScore: score,
           responseTimeScore: score,
           fulfillmentScore: score,
@@ -454,19 +451,19 @@ export function RequestDetailPage() {
                 <div className="stack-actions">
                   <button
                     className="button primary"
-                    disabled={!!thread.confirmedByRequesterAt || user?.role !== "PROVIDER"}
+                    disabled={!!thread.confirmedByRequesterAt || !isRequester}
                     onClick={() => handleConfirm("requester")}
                   >
                     Confirmar como cliente
                   </button>
                   <button
                     className="button secondary"
-                    disabled={!!thread.confirmedByProviderAt || user?.role !== "PROVIDER"}
+                    disabled={!!thread.confirmedByProviderAt || !isProviderParticipant}
                     onClick={() => handleConfirm("provider")}
                   >
                     Confirmar como proveedor
                   </button>
-                  <button className="text-button danger" onClick={handleClose}>
+                  <button className="text-button danger" onClick={handleClose} disabled={!isRequester && !isProviderParticipant}>
                     Cerrar mi parte
                   </button>
                 </div>

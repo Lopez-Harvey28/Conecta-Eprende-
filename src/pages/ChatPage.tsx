@@ -29,8 +29,8 @@ export default function ChatPage() {
   const {
     threads,
     currentThread,
-    fetchThreadsByProvider,
-    fetchThreadsBySender,
+    fetchMyThreads,
+    clearThreads,
     getThread,
     addMessage,
     updateThread,
@@ -38,7 +38,6 @@ export default function ChatPage() {
   } = useQuotesStore();
   const { currentProvider, getProvider } = useProvidersStore();
 
-  const [actor, setActor] = useState<"provider" | "requester">("provider");
   const [reply, setReply] = useState("");
   const [search, setSearch] = useState("");
   const [quoteOpen, setQuoteOpen] = useState(false);
@@ -51,15 +50,18 @@ export default function ChatPage() {
 
   const thread = currentThread;
   const provider = currentProvider?.provider;
+  const providerIdForUser = user?.providers?.[0]?.id || user?.providerProfileId;
+  const isRequester = !!user && thread?.senderId === user.id;
+  const isProviderParticipant = !!providerIdForUser && thread?.providerId === providerIdForUser;
+  const actor: "provider" | "requester" = isProviderParticipant ? "provider" : "requester";
 
   useEffect(() => {
-    if (!user) return;
-    if (user.role === "PROVIDER" && user.providers?.[0]?.id) {
-      fetchThreadsByProvider(user.providers[0].id);
-    } else {
-      fetchThreadsBySender(user.id);
+    if (!user) {
+      clearThreads();
+      return;
     }
-  }, [user, fetchThreadsByProvider, fetchThreadsBySender]);
+    fetchMyThreads();
+  }, [user?.id, fetchMyThreads, clearThreads]);
 
   useEffect(() => {
     if (requestId) {
@@ -89,7 +91,7 @@ export default function ChatPage() {
     event.preventDefault();
     if (!reply.trim() || !requestId) return;
     try {
-      await addMessage(requestId, reply.trim(), actor);
+      await addMessage(requestId, reply.trim());
       setReply("");
       await getThread(requestId);
     } catch (e) {
@@ -140,7 +142,7 @@ export default function ChatPage() {
   const handleClose = async () => {
     if (!requestId || !user) return;
     try {
-      const newStatus = user.role === "PROVIDER" ? "CLOSED_PROVIDER" : "CLOSED_REQUESTER";
+      const newStatus = isProviderParticipant ? "CLOSED_PROVIDER" : "CLOSED_REQUESTER";
       await updateThread(requestId, { status: newStatus });
       await getThread(requestId);
     } catch (e) {
@@ -242,16 +244,9 @@ export default function ChatPage() {
           </div>
           <div className="chat-header-actions">
             <RequestStatusBadge status={thread.status as any} />
-            <label>
-              Escribís como
-              <select
-                value={actor}
-                onChange={event => setActor(event.target.value as "provider" | "requester")}
-              >
-                <option value="provider">Proveedor</option>
-                <option value="requester">Cliente</option>
-              </select>
-            </label>
+            <span className="chat-role-pill">
+              Escribís como {actor === "provider" ? "proveedor" : "cliente"}
+            </span>
             <button
               className="icon-button"
               onClick={() => setReportOpen(true)}
@@ -306,11 +301,11 @@ export default function ChatPage() {
                 </button>
               )}
               <button
-                onClick={() => addMessage(requestId, actor === "provider" ? "¿Podés compartir cantidad, medidas y fecha deseada?" : "Te comparto los detalles necesarios para preparar la cotización.", actor)}
+                onClick={() => addMessage(requestId, actor === "provider" ? "¿Podés compartir cantidad, medidas y fecha deseada?" : "Te comparto los detalles necesarios para preparar la cotización.")}
               >
                 <FileText /> {actor === "provider" ? "Pedir más detalles" : "Enviar detalles"}
               </button>
-              <button onClick={() => handleConfirm(actor as any)}>
+              <button onClick={() => handleConfirm(actor === "provider" ? "provider" : "requester")}>
                 <CheckCheck /> Confirmar trabajo
               </button>
               <button onClick={() => setExternalOpen(true)}>

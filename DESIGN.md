@@ -6,12 +6,12 @@ Interfaz de producto clara y práctica, pensada para uso diurno en teléfonos y 
 
 ## Color
 
-- Fondo: neutral cálido verdoso `oklch(97.5% .008 150)`.
-- Superficie: papel tintado `oklch(99% .004 150)`.
-- Texto principal: `oklch(25% .03 165)`.
-- Acción y progreso: verde bosque `oklch(48% .105 158)`.
-- Acento puntual: maíz `oklch(69% .13 75)`.
-- Estados de error: rojo terroso `oklch(52% .16 28)`.
+- Primario: azul profundo `#001F3F`, usado en navegación global, encabezados principales y elementos de marca.
+- Secundario: gris plata `#C0C0C0`, usado en bordes, separadores, contornos y estados inactivos.
+- Terciario: azul corporativo intermedio `#004080`, reservado para llamadas a la acción, botones primarios y enlaces activos.
+- Neutro: gris muy claro `#F5F5F5`, usado como fondo principal para reducir fatiga visual y mantener la interfaz limpia.
+- Superficie: `#fbfbfb`, una variación mínima del neutro para diferenciar tarjetas y formularios sin introducir una nueva familia cromática.
+- Estados de error: rojo terroso `oklch(52% .16 28)`, conservado solo para accesibilidad y comunicación de errores.
 
 ## Typography
 
@@ -19,7 +19,7 @@ Inter o Segoe UI con escala compacta de producto. Títulos usan peso y contraste
 
 ## Components
 
-Botones de 42 px mínimos, radio de 10 px y foco visible. Badges separan confianza, verificación y formalización. Las superficies se agrupan solo cuando representan una unidad funcional. Estados vacíos explican el siguiente paso; limitaciones del MVP siempre incluyen una razón.
+Botones de 42 px mínimos, radio de 10 px y foco visible. Badges separan confianza, verificación, estado de perfil y disponibilidad. Las superficies se agrupan solo cuando representan una unidad funcional. Estados vacíos explican el siguiente paso; limitaciones del MVP siempre incluyen una razón.
 
 ## Layout and Motion
 

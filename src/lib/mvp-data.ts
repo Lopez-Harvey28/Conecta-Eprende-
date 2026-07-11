@@ -1,25 +1,29 @@
+import type { ClientProfile, RoleAssignment, UserAccount } from "./identity";
+import { demoAccounts, demoClientProfiles, demoOffers, demoProviders, demoRoleAssignments } from "../auth/demoProfiles";
+
 export const CREATIVE_CITIES = ["Estelí", "León", "Nagarote", "Managua", "Masaya", "Granada", "San Juan de Oriente", "Juigalpa", "Matagalpa", "Bluefields"] as const;
 export type CreativeCity = typeof CREATIVE_CITIES[number];
 export type PriceRange = "LOW" | "MEDIUM" | "HIGH" | "NEGOTIABLE";
 export type Availability = "AVAILABLE" | "BUSY" | "UNAVAILABLE";
 export type FormalizationStatus = "INFORMAL" | "IN_PROGRESS" | "MIPYME";
 export type VerificationLevel = "UNVERIFIED" | "PHONE" | "COMPLETE";
-export type RequestStatus = "DRAFT" | "OPEN" | "IN_CONVERSATION" | "QUOTE_SENT" | "QUOTE_ACCEPTED" | "CLOSED_REQUESTER" | "CLOSED_PROVIDER" | "COMPLETED" | "CANCELLED";
+export type RequestStatus = "DRAFT" | "OPEN" | "IN_CONVERSATION" | "QUOTE_SENT" | "QUOTE_ACCEPTED" | "CLOSED_BY_REQUESTER" | "CLOSED_BY_PROVIDER" | "COMPLETED" | "CANCELLED" | "DISPUTED";
 export type OfferType = "PRODUCT" | "SERVICE" | "PACKAGE" | "PORTFOLIO_ITEM";
 export type OfferStatus = "ACTIVE" | "INACTIVE" | "ARCHIVED";
 export type PriceType = "FIXED" | "FROM" | "NEGOTIABLE" | "PER_UNIT" | "PER_PROJECT";
 export type MessageType = "TEXT" | "SYSTEM" | "QUOTE_SUMMARY" | "STATUS_UPDATE" | "QUICK_REPLY" | "COMPLETION_REQUEST" | "REVIEW_UNLOCKED";
 
 export interface ProviderProfile {
-  id: string; userId: string; publicName: string; tagline?:string; avatarUrl?:string; coverImageUrl?:string; city: CreativeCity; category: string;
+  id: string; ownerUserId: string; publicName: string; tagline?:string; avatarUrl?:string; coverImageUrl?:string; city: CreativeCity; category: string;
   description: string; serviceArea:CreativeCity[]; services: string[]; priceRange: PriceRange; availability: Availability;
   portfolioImages: string[]; formalizationStatus: FormalizationStatus; verificationLevel: VerificationLevel;
   trustScore: number; medals: string[]; responseTimeHrs: number; completedRequests: number; profileCompleteness:number;
   lat: number; lng: number; contactPreference: string; createdAt: string; updatedAt: string;
+  profileStatus?: "DRAFT" | "ACTIVE" | "SUSPENDED"; avgRating?: number | null; totalVerifiedReviews?: number; suspiciousActivityPenalty?: number;
 }
 export interface QuoteRequest {
   id: string; requesterId: string; requesterName: string; providerId: string; title: string;
-  productId?: string | null; description: string; budgetRange?: PriceRange; location?: CreativeCity; contactPreference: string;
+  productId?: string | null; description: string; desiredDate?: string; budgetRange?: PriceRange; location?: CreativeCity; contactPreference: string;
   status: RequestStatus; confirmedByRequesterAt?: string | null; confirmedByProviderAt?: string | null;
   quotedPriceLabel?: string; quotedDeliveryTime?: string; completedAt?: string | null; createdAt: string; updatedAt: string;
   unreadByProvider: number; unreadByRequester: number; messages: ChatMessage[];
@@ -27,7 +31,7 @@ export interface QuoteRequest {
 export interface ChatMessage { id:string; author:"requester"|"provider"|"system"; senderId:string|"SYSTEM"; type:MessageType; text:string; metadata?:Record<string,unknown>; createdAt:string; }
 export interface ProviderOffer { id:string; providerId:string; type:OfferType; status:OfferStatus; name:string; category:string; shortDescription:string; fullDescription:string; priceType:PriceType; priceLabel:string; minimumOrder?:string; estimatedDelivery?:string; availability:Availability; cityCoverage:CreativeCity[]; tags:string[]; imageUrls:string[]; viewCount:number; inquiryCount:number; createdAt:string; updatedAt:string; }
 export interface Review { id: string; requestId: string; reviewerId: string; providerId: string; score: number; text: string; createdAt: string; }
-export interface Report { id: string; reporterId: string; targetType: "PROVIDER" | "REQUEST" | "REVIEW"; targetId: string; reason: string; description: string; status: "PENDING_REVIEW" | "REVIEWED" | "DISMISSED"; createdAt: string; }
+export interface Report { id: string; reporterId: string; targetType: "PROVIDER" | "REQUEST" | "REVIEW"; targetId: string; reason: string; description: string; status: "PENDING" | "REVIEWED" | "DISMISSED" | "ESCALATED"; createdAt: string; }
 
 const cityGeo: Record<CreativeCity, [number, number]> = {
   "Estelí": [13.0919,-86.3538], "León": [12.4346,-86.8796], "Nagarote": [12.2659,-86.5647],
@@ -36,7 +40,8 @@ const cityGeo: Record<CreativeCity, [number, number]> = {
   "Matagalpa": [12.9256,-85.9175], "Bluefields": [12.0137,-83.7635],
 };
 const categories = ["Diseño gráfico", "Bordado y serigrafía", "Empaques ecológicos", "Café y alimentos", "Artesanía", "Fotografía", "Marketing digital", "Insumos agrícolas", "Muebles y carpintería", "Servicios tecnológicos"];
-const names = ["Norte Creativo", "Taller Guardabarranco", "Soluciones Güegüense", "Manos de Mi Tierra", "Colectivo Mombacho"];
+const nameByCategory:Record<string,string>={"Diseño gráfico":"Estudio","Bordado y serigrafía":"Taller Textil","Empaques ecológicos":"Empaques","Café y alimentos":"Finca","Artesanía":"Taller Artesano","Fotografía":"Luz","Marketing digital":"Impulso","Insumos agrícolas":"Agroservicio","Muebles y carpintería":"Madera","Servicios tecnológicos":"Nexo Digital"};
+const nameSuffixes=["Ceibo","Mombacho","Guardabarranco","Segovia","Cocibolca"];
 const serviceByCategory: Record<string, string[]> = {
   "Diseño gráfico": ["Logotipos", "Identidad visual", "Piezas para redes"],
   "Bordado y serigrafía": ["Camisetas bordadas", "Uniformes", "Serigrafía por volumen"],
@@ -77,13 +82,13 @@ export const seedProviders: ProviderProfile[] = Array.from({ length: 50 }, (_, i
   const completedRequests=index%17;
   const trustScore=calculateTrustScore({phoneVerified:verificationLevel!=="UNVERIFIED",profileComplete:true,requestsResponded:2+(index%8),requestsCompleted:completedRequests,averageReview:4+(index%2)*.5,accountAgeDays});
   return {
-    id: `provider-${index + 1}`, userId: index === 0 ? "user-provider" : `user-${index + 1}`,
-    publicName: index === 0 ? "Estudio Creativo Managua" : `${names[index % names.length]} ${city}`,
+    id: `provider-${index + 1}`, ownerUserId: index === 0 ? "user-provider" : `user-${index + 1}`,
+    publicName: index === 0 ? "Estudio Creativo Managua" : `${nameByCategory[category]} ${nameSuffixes[Math.floor(index/10)]} ${city}`,
     city, category, tagline:`${serviceByCategory[category][0]} con atención clara y local.`,description: `${serviceByCategory[category][0]} y soluciones hechas en ${city} para emprendimientos que buscan calidad, comunicación clara y entregas responsables.`,serviceArea:[city],
     services: serviceByCategory[category], priceRange: (["LOW","MEDIUM","HIGH"] as PriceRange[])[index % 3],
     availability: index % 7 === 0 ? "BUSY" : "AVAILABLE", portfolioImages: [imageByCategory[category]],
     formalizationStatus, verificationLevel, trustScore, responseTimeHrs: 1 + (index % 12), completedRequests,profileCompleteness:100,
-    medals: ["Perfil completo", ...(verificationLevel !== "UNVERIFIED" ? ["Teléfono verificado"] : []), ...(trustScore >= 80 ? ["Confianza alta"] : []), ...(formalizationStatus === "IN_PROGRESS" ? ["En camino a MIPYME"] : []), ...(formalizationStatus === "MIPYME" ? ["MIPYME formal"] : [])],
+    medals: ["Perfil completo", ...(verificationLevel !== "UNVERIFIED" ? ["Teléfono verificado"] : []), ...(completedRequests > 0 ? ["Actividad verificada"] : []), ...(trustScore >= 80 ? ["Confianza alta"] : [])],
     lat: lat + (index % 5) * .004, lng: lng + (index % 4) * .004, contactPreference: "WhatsApp", createdAt:new Date(Date.now()-accountAgeDays*86400000).toISOString(), updatedAt: new Date().toISOString(),
   };
 });
@@ -123,9 +128,32 @@ export const seedRequests: QuoteRequest[] = Array.from({ length: 10 }, (_, index
   };
 });
 export const seedReviews: Review[] = seedRequests.slice(0,5).map((request,index) => ({ id:`review-${index+1}`, requestId:request.id, reviewerId:"user-client", providerId:request.providerId, score: 4 + (index % 2), text:"Trabajo confirmado, buena comunicación y entrega según lo acordado.", createdAt:"2026-06-21T10:00:00.000Z" }));
-export const seedReports: Report[] = ["Perfil posiblemente falso", "Intento de estafa", "Contenido inapropiado"].map((reason,index) => ({ id:`report-${index+1}`, reporterId:"user-client", targetType:"PROVIDER", targetId:`provider-${index+6}`, reason, description:"Requiere revisión humana antes de tomar cualquier medida.", status:"PENDING_REVIEW", createdAt:`2026-06-${22+index}T10:00:00.000Z` }));
+export const seedReports: Report[] = [
+  ["Información engañosa", "El proveedor no coincide con la descripción del perfil."],
+  ["Posible spam", "La conversación parece spam y repite el mismo mensaje."],
+  ["Imágenes dudosas", "El perfil usa fotos que no parecen propias."],
+].map(([reason,description],index) => ({ id:`report-${index+1}`, reporterId:"user-client", targetType:"PROVIDER", targetId:`provider-${index+6}`, reason, description, status:"PENDING", createdAt:`2026-06-${22+index}T10:00:00.000Z` }));
+
+const identityTimestamp="2026-01-15T12:00:00.000Z";
+export const seedAccounts:UserAccount[]=[
+  {id:"user-provider",email:"maria@conecta.ni",displayName:"María Fernanda Ruiz",status:"ACTIVE",emailVerifiedAt:identityTimestamp,phoneVerifiedAt:identityTimestamp,createdAt:identityTimestamp,updatedAt:identityTimestamp},
+  {id:"user-client",email:"andrea@conecta.ni",displayName:"Andrea López",status:"ACTIVE",emailVerifiedAt:identityTimestamp,phoneVerifiedAt:null,createdAt:identityTimestamp,updatedAt:identityTimestamp},
+  ...seedProviders.filter(provider=>provider.ownerUserId!=="user-provider").map(provider=>({id:provider.ownerUserId,email:`${provider.ownerUserId}@example.invalid`,displayName:provider.publicName,status:"ACTIVE" as const,emailVerifiedAt:identityTimestamp,phoneVerifiedAt:provider.verificationLevel==="UNVERIFIED"?null:identityTimestamp,createdAt:provider.createdAt,updatedAt:provider.updatedAt})),
+  ...demoAccounts,
+];
+export const seedClientProfiles:ClientProfile[]=[{id:"client-profile-1",userId:"user-client",publicName:"Andrea López",city:"Managua",avatarUrl:null,createdAt:identityTimestamp,updatedAt:identityTimestamp},...demoClientProfiles];
+export const seedRoleAssignments:RoleAssignment[]=[
+  ...seedAccounts.filter(account=>!account.id.includes("_demo")).map((account,index)=>({id:`role-requester-${index+1}`,userId:account.id,role:"REQUESTER" as const,grantedAt:identityTimestamp,grantedByUserId:null})),
+  ...seedProviders.map((provider,index)=>({id:`role-provider-${index+1}`,userId:provider.ownerUserId,role:"PROVIDER" as const,grantedAt:identityTimestamp,grantedByUserId:null})),
+  {id:"role-admin-reviewer-1",userId:"user-provider",role:"ADMIN_REVIEWER",grantedAt:identityTimestamp,grantedByUserId:null},
+  {id:"role-super-admin-1",userId:"user-provider",role:"SUPER_ADMIN",grantedAt:identityTimestamp,grantedByUserId:null},
+  ...demoRoleAssignments,
+];
+
+seedProviders.push(...demoProviders);
+seedOffers.push(...demoOffers);
 
 export const CATEGORY_OPTIONS = categories;
 export const priceLabel: Record<PriceRange,string> = { LOW:"Económico", MEDIUM:"Intermedio", HIGH:"Premium", NEGOTIABLE:"Negociable" };
 export const availabilityLabel: Record<Availability,string> = { AVAILABLE:"Disponible", BUSY:"Agenda limitada", UNAVAILABLE:"No disponible" };
-export const formalizationLabel: Record<FormalizationStatus,string> = { INFORMAL:"Informal", IN_PROGRESS:"En camino a MIPYME", MIPYME:"MIPYME formal" };
+export const formalizationLabel: Record<FormalizationStatus,string> = { INFORMAL:"Legacy informal", IN_PROGRESS:"Legacy en progreso", MIPYME:"Legacy completo" };

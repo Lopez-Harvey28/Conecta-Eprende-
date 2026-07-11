@@ -49,5 +49,22 @@
 - El flujo crítico usa un store persistente en navegador para que la demo funcione sin PostgreSQL ni servicios externos.
 - La extracción de intención tiene fallback local determinista y el ranking aplica 35% confianza, 25% cercanía, 20% precio y 20% disponibilidad.
 - Las reseñas requieren solicitud `COMPLETED`, y este estado requiere confirmación de cliente y proveedor.
-- Reportes se almacenan como `PENDING_REVIEW` y solo una persona administradora cambia su estado.
+- Reportes usan `PENDING`, `REVIEWED`, `DISMISSED` y `ESCALATED`; solo una sesión administrativa puede cambiar su estado.
 - La siguiente expansión recomendada es mover el mismo contrato a Prisma/PostgreSQL, añadir autenticación real y pruebas de integración de API.
+
+## 8. Checkpoint de endurecimiento (julio de 2026)
+
+- Los selectores de Zustand retornan referencias estables en perfil y catálogo, eliminando el loop de `/me`.
+- La participación en solicitudes se deriva del usuario y proveedor actuales. Chat, cotización, cierre, confirmación y reseña vuelven a validar ese rol en el store.
+- Las solicitudes validan texto significativo, fecha futura, propiedad, límite de cuenta y duplicados durante diez minutos antes de persistir.
+- El progreso de formalización persiste y puede marcar un perfil en proceso, pero nunca concede estado MIPYME formal automáticamente.
+- El mapa agrupa resultados por ciudad a escala nacional y revela puntos individuales al acercarse, con estados visibles para carga y fallo de tiles.
+
+## 9. Identidad, perfiles y sesión serializable
+
+- `UserAccount` representa identidad y estado de acceso. No contiene un tipo exclusivo de usuario.
+- `ClientProfile` y `ProviderProfile` son perfiles opcionales vinculados por `userId`/`ownerUserId`. Una cuenta puede tener ambos.
+- `RoleAssignment` guarda permisos transversales (`REQUESTER`, `PROVIDER`, `ADMIN_REVIEWER`, `SUPER_ADMIN`). Ser proveedor no es un permiso administrativo público.
+- `AuthSessionDTO` contiene únicamente la sesión emitida por login: `sessionId`, `userId`, permisos y vencimiento. Vive en `auth-store` sin persistencia.
+- `createMarketplaceSnapshot()` exporta identidad y datos comerciales con versión de esquema, pero excluye deliberadamente sesión y usuario actual derivado.
+- Mientras se conecta el login real, `/api/auth/session` sin sesión activa activa una cuenta bootstrap administradora que también posee `provider-1`. No existe selector local para elevar permisos.

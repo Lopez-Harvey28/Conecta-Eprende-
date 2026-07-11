@@ -15,6 +15,8 @@ enum Role {
   USER
   PROVIDER
   ADMIN
+  ADMIN_REVIEWER
+  SUPER_ADMIN
 }
 
 enum LegacyCity {
@@ -51,32 +53,32 @@ enum Availability {
 // ──────────────────────────────────────────────────────────
 
 model User {
-  id                       String            @id @default(cuid())
-  email                    String            @unique
-  name                     String?
-  image                    String?
-  role                     Role              @default(USER)
-  password                 String?
-  emailVerified            DateTime?
-  createdAt                DateTime          @default(now())
-  updatedAt                DateTime          @updatedAt
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String?
+  image         String?
+  role          Role      @default(USER)
+  password      String?
+  emailVerified DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
-  accounts                 Account[]
-  sessions                 Session[]
-  refreshTokens            RefreshToken[]
-  emailVerificationTokens  EmailVerificationToken[]
-  passwordResetTokens      PasswordResetToken[]
+  accounts                Account[]
+  sessions                Session[]
+  refreshTokens           RefreshToken[]
+  emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
 
-  sentQuotes               QuoteThread[]      @relation("Sender")
-  reviews                  Review[]           @relation("Reviewer")
-  reviewedRiskReports      RiskReport[]       @relation("RiskReportReviewer")
+  sentQuotes          QuoteThread[] @relation("Sender")
+  reviews             Review[]      @relation("Reviewer")
+  reviewedRiskReports RiskReport[]  @relation("RiskReportReviewer")
 
-  providers                Provider[]
-  roleAssignments          RoleAssignment[]
-  moderationAuditLogs      ModerationAuditLog[] @relation("ModerationAuditActor")
-  providerStatusUpdates    Provider[]           @relation("ProviderStatusUpdatedBy")
-  escalatedRiskReports     RiskReport[]         @relation("RiskReportEscalatedBy")
-  resolvedRiskReports      RiskReport[]         @relation("RiskReportResolvedBy")
+  providers             Provider[]
+  roleAssignments       RoleAssignment[]
+  moderationAuditLogs   ModerationAuditLog[] @relation("ModerationAuditActor")
+  providerStatusUpdates Provider[]           @relation("ProviderStatusUpdatedBy")
+  escalatedRiskReports  RiskReport[]         @relation("RiskReportEscalatedBy")
+  resolvedRiskReports   RiskReport[]         @relation("RiskReportResolvedBy")
 }
 
 model RoleAssignment {
@@ -86,7 +88,7 @@ model RoleAssignment {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, role])
   @@index([role])
@@ -105,18 +107,18 @@ model RefreshToken {
 }
 
 model Account {
-  id                   String  @id @default(cuid())
-  userId               String
-  user                 User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider             String
-  providerAccountId    String
-  refresh_token        String? @db.Text
-  access_token         String? @db.Text
-  expires_at           Int?
-  token_type           String?
-  scope                String?
-  id_token             String? @db.Text
-  session_state        String?
+  id                String  @id @default(cuid())
+  userId            String
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
 
   @@unique([provider, providerAccountId])
   @@index([userId])
@@ -170,32 +172,32 @@ model Department {
 }
 
 model City {
-  id           String       @id @default(cuid())
+  id           String        @id @default(cuid())
   departmentId String
-  department   Department   @relation(fields: [departmentId], references: [id], onDelete: Cascade)
+  department   Department    @relation(fields: [departmentId], references: [id], onDelete: Cascade)
   name         String
-  slug         String       @unique
-  legacyCode   LegacyCity?  @unique
-  providers    Provider[]   @relation("ProviderCity")
+  slug         String        @unique
+  legacyCode   LegacyCity?   @unique
+  providers    Provider[]    @relation("ProviderCity")
   catalogItems CatalogItem[] @relation("CatalogItemCity")
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
   @@unique([departmentId, name])
   @@index([departmentId])
 }
 
 model Category {
-  id                String                @id @default(cuid())
-  name              String
-  slug              String                @unique
-  parentCategoryId  String?
-  parentCategory    Category?             @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
-  childCategories   Category[]            @relation("CategoryHierarchy")
-  providerLinks     ProviderCategory[]
-  catalogItemLinks  CatalogItemCategory[]
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
+  id               String                @id @default(cuid())
+  name             String
+  slug             String                @unique
+  parentCategoryId String?
+  parentCategory   Category?             @relation("CategoryHierarchy", fields: [parentCategoryId], references: [id])
+  childCategories  Category[]            @relation("CategoryHierarchy")
+  providerLinks    ProviderCategory[]
+  catalogItemLinks CatalogItemCategory[]
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
 
   @@index([parentCategoryId])
 }
@@ -205,32 +207,32 @@ model Category {
 // ──────────────────────────────────────────────────────────
 
 model Provider {
-  id                  String              @id @default(cuid())
-  userId              String
-  user                User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  displayName         String
-  slug                String              @unique
-  bio                 String?             @db.Text
-  logoUrl             String?
-  coverImageUrl       String?
+  displayName   String
+  slug          String  @unique
+  bio           String? @db.Text
+  logoUrl       String?
+  coverImageUrl String?
 
-  city                LegacyCity
-  cityId              String?
-  cityRef             City?               @relation("ProviderCity", fields: [cityId], references: [id], onDelete: SetNull)
-  department          String?
-  serviceRadius       String?
+  city          LegacyCity
+  cityId        String?
+  cityRef       City?      @relation("ProviderCity", fields: [cityId], references: [id], onDelete: SetNull)
+  department    String?
+  serviceRadius String?
 
   // category = categoría principal, mainCategory = categoría más específica
-  category            String
-  mainCategory        String?
-  subcategories       String[]
+  category      String
+  mainCategory  String?
+  subcategories String[]
 
-  priceMin            Int?
-  priceMax            Int?
-  priceRange          String?
-  businessHours       String?
-  deliveryOptions     String[]
+  priceMin        Int?
+  priceMax        Int?
+  priceRange      String?
+  businessHours   String?
+  deliveryOptions String[]
 
   availability        Availability        @default(DISPONIBLE)
   status              String              @default("ACTIVE")
@@ -240,7 +242,7 @@ model Provider {
   statusUpdatedById   String?
   statusUpdatedBy     User?               @relation("ProviderStatusUpdatedBy", fields: [statusUpdatedById], references: [id], onDelete: SetNull)
   verified            Boolean             @default(false)
-  verificationLevel  String?              // "Perfil completo", "Teléfono verificado", "Documento verificado"
+  verificationLevel   String? // "Perfil completo", "Teléfono verificado", "Documento verificado"
   formalizationStatus FormalizationStatus @default(INFORMAL)
   profileCompleteness Float               @default(0)
   responseTimeHrs     Float?
@@ -248,19 +250,19 @@ model Provider {
 
   // Coordenadas - lat/lng simple para Leaflet
   // PostGIS location disponible si se habilita extensión (requiere Privilegios de superuser)
-  lat                 Float?
-  lng                 Float?
+  lat Float?
+  lng Float?
 
-  shortDescription    String?             @db.VarChar(200)
-  aboutDescription    String?             @db.Text
+  shortDescription String? @db.VarChar(200)
+  aboutDescription String? @db.Text
 
-  createdAt           DateTime            @default(now())
-  updatedAt           DateTime            @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   trustScore          TrustScore?
   metrics             ProviderMetrics?
-  reviews             Review[]            @relation("Reviewee")
-  quoteThreads        QuoteThread[]        @relation("Provider")
+  reviews             Review[]                 @relation("Reviewee")
+  quoteThreads        QuoteThread[]            @relation("Provider")
   checklistState      FormalizationChecklist?
   formalizationSteps  FormalizationStep[]
   businessHourRows    ProviderBusinessHour[]
@@ -289,8 +291,8 @@ model ProviderCategory {
   isPrimary  Boolean  @default(false)
   createdAt  DateTime @default(now())
 
-  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@id([providerId, categoryId])
   @@index([categoryId])
@@ -307,8 +309,8 @@ model ProviderBusinessHour {
   isClosed   Boolean  @default(false)
   note       String?
 
-  @@index([providerId])
   @@unique([providerId, dayOfWeek])
+  @@index([providerId])
 }
 
 model ProviderDeliveryOption {
@@ -319,20 +321,20 @@ model ProviderDeliveryOption {
   details    String?
   createdAt  DateTime @default(now())
 
-  @@index([providerId])
   @@unique([providerId, label])
+  @@index([providerId])
 }
 
 model ProviderPhoto {
-  id            String     @id @default(cuid())
+  id            String   @id @default(cuid())
   providerId    String
-  provider      Provider   @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
   catalogItemId String?
   imageUrl      String
   caption       String?
-  photoType     String     // PRODUCTO | SERVICIO_REALIZADO | TALLER_O_LOCAL | EQUIPO_PRODUCTIVO | ENTREGA | PORTAFOLIO
-  isFeatured    Boolean    @default(false)
-  createdAt    DateTime   @default(now())
+  photoType     String // PRODUCTO | SERVICIO_REALIZADO | TALLER_O_LOCAL | EQUIPO_PRODUCTIVO | ENTREGA | PORTAFOLIO
+  isFeatured    Boolean  @default(false)
+  createdAt     DateTime @default(now())
 
   @@index([providerId])
 }
@@ -342,12 +344,12 @@ model ProviderPhoto {
 // ──────────────────────────────────────────────────────────
 
 model ProviderMedal {
-  id           String   @id @default(cuid())
-  providerId   String
-  provider     Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  medalType    String   // PERFIL_COMPLETO | TELEFONO_VERIFICADO | RESPONDE_RAPIDO | BUENAS_RESENAS | SOLICITUDES_COMPLETADAS | EQUIPO_PRODUCTIVO_DISPONIBLE | EN_PROCESO_DE_FORMALIZACION
-  earnedAt     DateTime @default(now())
-  sourceEvent  String   // descripción del evento que generó la medal
+  id          String   @id @default(cuid())
+  providerId  String
+  provider    Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  medalType   String // PERFIL_COMPLETO | TELEFONO_VERIFICADO | RESPONDE_RAPIDO | BUENAS_RESENAS | SOLICITUDES_COMPLETADAS | EQUIPO_PRODUCTIVO_DISPONIBLE | EN_PROCESO_DE_FORMALIZACION
+  earnedAt    DateTime @default(now())
+  sourceEvent String // descripción del evento que generó la medal
 
   @@index([providerId])
 }
@@ -374,32 +376,32 @@ model TrustScore {
 }
 
 model ProviderMetrics {
-  id                         String   @id @default(cuid())
-  providerId                 String   @unique
-  provider                   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  avgRating                  Float?
-  totalVerifiedReviews       Int      @default(0)
-  profileCompleteness        Float    @default(0)
-  responseTimeHrs            Float?
-  completedRequests          Int      @default(0)
-  requestsResponded          Int      @default(0)
-  suspiciousActivityPenalty  Float    @default(0)
-  trustScore                 Float    @default(0)
-  calculatedAt               DateTime @default(now())
-  updatedAt                  DateTime @updatedAt
+  id                        String   @id @default(cuid())
+  providerId                String   @unique
+  provider                  Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  avgRating                 Float?
+  totalVerifiedReviews      Int      @default(0)
+  profileCompleteness       Float    @default(0)
+  responseTimeHrs           Float?
+  completedRequests         Int      @default(0)
+  requestsResponded         Int      @default(0)
+  suspiciousActivityPenalty Float    @default(0)
+  trustScore                Float    @default(0)
+  calculatedAt              DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   @@index([trustScore])
   @@index([avgRating])
 }
 
 model Review {
-  id                 String   @id @default(cuid())
-  providerId         String
-  provider           Provider @relation("Reviewee", fields: [providerId], references: [id])
-  reviewerId         String
-  reviewer           User     @relation("Reviewer", fields: [reviewerId], references: [id])
-  requestId          String?
-  request            QuoteThread? @relation("RequestReviews", fields: [requestId], references: [id], onDelete: SetNull)
+  id         String       @id @default(cuid())
+  providerId String
+  provider   Provider     @relation("Reviewee", fields: [providerId], references: [id])
+  reviewerId String
+  reviewer   User         @relation("Reviewer", fields: [reviewerId], references: [id])
+  requestId  String?
+  request    QuoteThread? @relation("RequestReviews", fields: [requestId], references: [id], onDelete: SetNull)
 
   qualityScore       Int
   responseTimeScore  Int
@@ -408,44 +410,44 @@ model Review {
   valueScore         Int
   generalScore       Float
 
-  comment            String?  @db.Text
-  sentiment          Float?
-  analysis           ReviewAnalysis?
-  createdAt          DateTime @default(now())
+  comment   String?         @db.Text
+  sentiment Float?
+  analysis  ReviewAnalysis?
+  createdAt DateTime        @default(now())
 
+  @@unique([requestId, providerId, reviewerId])
   @@index([providerId])
   @@index([reviewerId])
   @@index([requestId])
-  @@unique([requestId, providerId, reviewerId])
 }
 
 model ReviewAnalysis {
-  id                  String   @id @default(cuid())
-  reviewId            String   @unique
-  review              Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
-  sentimentScore      Float?
-  qualitySignals      Json?
-  moderationFlags     Json?
-  generalScore        Float?
-  algorithmVersion    String   @default("v1-seeded")
-  calculatedAt        DateTime @default(now())
+  id               String   @id @default(cuid())
+  reviewId         String   @unique
+  review           Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  sentimentScore   Float?
+  qualitySignals   Json?
+  moderationFlags  Json?
+  generalScore     Float?
+  algorithmVersion String   @default("v1-seeded")
+  calculatedAt     DateTime @default(now())
 }
 
 model TrustScoreSnapshot {
-  id                         String   @id @default(cuid())
-  providerId                 String
-  provider                   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  profileCompleteScore       Float
-  contactVerifiedScore       Float
-  requestsRespondedScore     Float
-  requestsCompletedScore     Float
-  avgReviewScore             Float
-  responseTimeScore          Float
-  accountAgeFactor           Float
-  suspiciousActivityPenalty  Float
-  finalScore                 Float
-  algorithmVersion           String   @default("v1-rule-based")
-  calculatedAt               DateTime @default(now())
+  id                        String   @id @default(cuid())
+  providerId                String
+  provider                  Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  profileCompleteScore      Float
+  contactVerifiedScore      Float
+  requestsRespondedScore    Float
+  requestsCompletedScore    Float
+  avgReviewScore            Float
+  responseTimeScore         Float
+  accountAgeFactor          Float
+  suspiciousActivityPenalty Float
+  finalScore                Float
+  algorithmVersion          String   @default("v1-rule-based")
+  calculatedAt              DateTime @default(now())
 
   @@index([providerId])
   @@index([calculatedAt])
@@ -453,29 +455,29 @@ model TrustScoreSnapshot {
 }
 
 model RiskReport {
-  id                              String    @id @default(cuid())
-  providerId                      String
-  provider                        Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  riskScore                       Float
-  suspiciousCyclesCount           Int       @default(0)
-  avgSearchTimeSeconds            Float?
-  avgRequestToCompletionMinutes   Float?
-  avgMessagesPerRequest           Float?
-  newAccountsPercentage           Float?
-  ratingConcentrationScore        Float?
-  status                          String    @default("OPEN")
-  reviewerNotes                   String?   @db.Text
-  recommendedAction               String?
-  generatedAt                     DateTime  @default(now())
-  reviewedAt                      DateTime?
-  reviewedByUserId                String?
-  reviewedBy                      User?     @relation("RiskReportReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
-  escalatedAt                     DateTime?
-  escalatedByUserId               String?
-  escalatedBy                     User?     @relation("RiskReportEscalatedBy", fields: [escalatedByUserId], references: [id], onDelete: SetNull)
-  resolvedAt                      DateTime?
-  resolvedByUserId                String?
-  resolvedBy                      User?     @relation("RiskReportResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
+  id                            String    @id @default(cuid())
+  providerId                    String
+  provider                      Provider  @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  riskScore                     Float
+  suspiciousCyclesCount         Int       @default(0)
+  avgSearchTimeSeconds          Float?
+  avgRequestToCompletionMinutes Float?
+  avgMessagesPerRequest         Float?
+  newAccountsPercentage         Float?
+  ratingConcentrationScore      Float?
+  status                        String    @default("OPEN")
+  reviewerNotes                 String?   @db.Text
+  recommendedAction             String?
+  generatedAt                   DateTime  @default(now())
+  reviewedAt                    DateTime?
+  reviewedByUserId              String?
+  reviewedBy                    User?     @relation("RiskReportReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  escalatedAt                   DateTime?
+  escalatedByUserId             String?
+  escalatedBy                   User?     @relation("RiskReportEscalatedBy", fields: [escalatedByUserId], references: [id], onDelete: SetNull)
+  resolvedAt                    DateTime?
+  resolvedByUserId              String?
+  resolvedBy                    User?     @relation("RiskReportResolvedBy", fields: [resolvedByUserId], references: [id], onDelete: SetNull)
 
   @@index([providerId])
   @@index([status])
@@ -506,38 +508,38 @@ model ModerationAuditLog {
 // ──────────────────────────────────────────────────────────
 
 model CatalogItem {
-  id                 String        @id @default(cuid())
-  providerId         String
-  provider           Provider      @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  providerId String
+  provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
-  title              String
-  itemType           String        // PRODUCTO_FINAL | SERVICIO_ESPECIALIZADO | INSUMO | MATERIA_PRIMA | EQUIPO_PRODUCTIVO | ALQUILER_EQUIPO | REPARACION_MANTENIMIENTO | CAPACITACION
-  category           String
-  subcategory        String
-  description        String        @db.Text
-  priceMin           Int?
-  priceMax           Int?
-  currency           String        @default("NIO")
-  priceUnit          String?       // "unidad", "día", "proyecto", "mes"
+  title       String
+  itemType    String // PRODUCTO_FINAL | SERVICIO_ESPECIALIZADO | INSUMO | MATERIA_PRIMA | EQUIPO_PRODUCTIVO | ALQUILER_EQUIPO | REPARACION_MANTENIMIENTO | CAPACITACION
+  category    String
+  subcategory String
+  description String  @db.Text
+  priceMin    Int?
+  priceMax    Int?
+  currency    String  @default("NIO")
+  priceUnit   String? // "unidad", "día", "proyecto", "mes"
 
   city               String
   cityId             String?
-  cityRef            City?         @relation("CatalogItemCity", fields: [cityId], references: [id], onDelete: SetNull)
+  cityRef            City?        @relation("CatalogItemCity", fields: [cityId], references: [id], onDelete: SetNull)
   availabilityStatus Availability @default(DISPONIBLE)
-  deliveryAvailable  Boolean       @default(false)
-  pickupAvailable    Boolean       @default(false)
+  deliveryAvailable  Boolean      @default(false)
+  pickupAvailable    Boolean      @default(false)
   mainImageUrl       String?
 
-  viewCount          Int          @default(0)
-  inquiryCount       Int          @default(0)
+  viewCount    Int @default(0)
+  inquiryCount Int @default(0)
 
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  equipmentDetail    EquipmentDetail?
-  photos             CatalogItemPhoto[]
-  categoryLinks      CatalogItemCategory[]
-  metrics            CatalogItemMetrics?
+  equipmentDetail EquipmentDetail?
+  photos          CatalogItemPhoto[]
+  categoryLinks   CatalogItemCategory[]
+  metrics         CatalogItemMetrics?
 
   @@index([providerId])
   @@index([cityId])
@@ -551,8 +553,8 @@ model CatalogItemCategory {
   isPrimary     Boolean  @default(false)
   createdAt     DateTime @default(now())
 
-  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
-  category      Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  catalogItem CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  category    Category    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@id([catalogItemId, categoryId])
   @@index([categoryId])
@@ -560,38 +562,38 @@ model CatalogItemCategory {
 }
 
 model CatalogItemMetrics {
-  id             String      @id @default(cuid())
-  catalogItemId  String      @unique
-  catalogItem    CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
-  viewCount      Int         @default(0)
-  inquiryCount   Int         @default(0)
-  requestCount   Int         @default(0)
-  calculatedAt   DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  id            String      @id @default(cuid())
+  catalogItemId String      @unique
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  viewCount     Int         @default(0)
+  inquiryCount  Int         @default(0)
+  requestCount  Int         @default(0)
+  calculatedAt  DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
 }
 
 model EquipmentDetail {
-  id                   String       @id @default(cuid())
-  catalogItemId        String       @unique
-  catalogItem          CatalogItem  @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
-  modality             String       // VENTA | ALQUILER | REPARACION | MANTENIMIENTO | INSTALACION | CAPACITACION_USO
+  id                   String      @id @default(cuid())
+  catalogItemId        String      @unique
+  catalogItem          CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  modality             String // VENTA | ALQUILER | REPARACION | MANTENIMIENTO | INSTALACION | CAPACITACION_USO
   brand                String?
   model                String?
   condition            String?
   capacity             String?
-  requiresTraining     Boolean      @default(false)
-  includesInstallation Boolean      @default(false)
-  maintenanceAvailable Boolean      @default(true)
+  requiresTraining     Boolean     @default(false)
+  includesInstallation Boolean     @default(false)
+  maintenanceAvailable Boolean     @default(true)
 }
 
 model CatalogItemPhoto {
-  id            String       @id @default(cuid())
+  id            String      @id @default(cuid())
   catalogItemId String
-  catalogItem   CatalogItem  @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
+  catalogItem   CatalogItem @relation(fields: [catalogItemId], references: [id], onDelete: Cascade)
   imageUrl      String
   caption       String?
-  isFeatured    Boolean      @default(false)
-  createdAt     DateTime     @default(now())
+  isFeatured    Boolean     @default(false)
+  createdAt     DateTime    @default(now())
 
   @@index([catalogItemId])
 }
@@ -601,32 +603,32 @@ model CatalogItemPhoto {
 // ──────────────────────────────────────────────────────────
 
 model QuoteThread {
-  id            String         @id @default(cuid())
+  id            String   @id @default(cuid())
   senderId      String
-  sender        User           @relation("Sender", fields: [senderId], references: [id])
+  sender        User     @relation("Sender", fields: [senderId], references: [id])
   providerId    String
-  provider      Provider       @relation("Provider", fields: [providerId], references: [id])
+  provider      Provider @relation("Provider", fields: [providerId], references: [id])
   catalogItemId String?
 
   // Compatibilidad con frontend legacy
-  subject       String
-  clientName    String?        // display name del cliente (se deriva de sender si null)
-  clientAvatar  String?        // avatar abbreviation
-  dateLabel     String?        // "Ayer", "Hace 1 semana" - calculado en app
+  subject      String
+  clientName   String? // display name del cliente (se deriva de sender si null)
+  clientAvatar String? // avatar abbreviation
+  dateLabel    String? // "Ayer", "Hace 1 semana" - calculado en app
 
-  status        String         @default("OPEN") // OPEN | IN_CONVERSATION | QUOTE_SENT | QUOTE_ACCEPTED | COMPLETED | CLOSED_REQUESTER | CLOSED_PROVIDER | CANCELLED
+  status String @default("OPEN") // OPEN | IN_CONVERSATION | QUOTE_SENT | QUOTE_ACCEPTED | COMPLETED | CLOSED_REQUESTER | CLOSED_PROVIDER | CANCELLED
 
   // Quote fields
-  quotedPriceLabel    String?
-  quotedDeliveryTime  String?
+  quotedPriceLabel       String?
+  quotedDeliveryTime     String?
   confirmedByRequesterAt DateTime?
-  confirmedByProviderAt DateTime?
-  completedAt         DateTime?
+  confirmedByProviderAt  DateTime?
+  completedAt            DateTime?
 
-  messages      QuoteMessage[]
-  quoteOffers   QuoteOffer[]
-  reviews       Review[]       @relation("RequestReviews")
-  createdAt     DateTime       @default(now())
+  messages    QuoteMessage[]
+  quoteOffers QuoteOffer[]
+  reviews     Review[]       @relation("RequestReviews")
+  createdAt   DateTime       @default(now())
 
   @@index([senderId])
   @@index([providerId])
@@ -634,18 +636,18 @@ model QuoteThread {
 }
 
 model QuoteOffer {
-  id                 String      @id @default(cuid())
-  requestId          String
-  request            QuoteThread @relation(fields: [requestId], references: [id], onDelete: Cascade)
-  providerId         String
-  amount             Int?
-  currency           String      @default("NIO")
-  priceLabel         String?
-  deliveryTimeLabel  String?
-  notes              String?     @db.Text
-  status             String      @default("DRAFT")
-  createdAt          DateTime    @default(now())
-  updatedAt          DateTime    @updatedAt
+  id                String      @id @default(cuid())
+  requestId         String
+  request           QuoteThread @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  providerId        String
+  amount            Int?
+  currency          String      @default("NIO")
+  priceLabel        String?
+  deliveryTimeLabel String?
+  notes             String?     @db.Text
+  status            String      @default("DRAFT")
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
 
   @@index([requestId])
   @@index([providerId])
@@ -657,7 +659,7 @@ model QuoteMessage {
   threadId       String
   thread         QuoteThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
   authorId       String
-  authorRole     String      // "client" | "provider" | "system"
+  authorRole     String // "client" | "provider" | "system"
   body           String      @db.Text
   aiDrafted      Boolean     @default(false)
   approvedByUser Boolean     @default(true)
@@ -674,7 +676,7 @@ model FormalizationChecklist {
   id         String   @id @default(cuid())
   providerId String   @unique
   provider   Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
-  steps      Json     // [{id, title, description, status: "completed" | "current" | "pending"}]
+  steps      Json // [{id, title, description, status: "completed" | "current" | "pending"}]
   updatedAt  DateTime @updatedAt
 }
 

@@ -43,8 +43,8 @@ const users = [
   { id: "seed_user_provider_cafe", email: "cafe@conecta.test", name: "Don Ernesto Café", role: Role.PROVIDER },
   { id: "seed_user_provider_equipo", email: "equipos@conecta.test", name: "Rosa Equipos", role: Role.PROVIDER },
   { id: "seed_user_provider_marketing", email: "marketing@conecta.test", name: "Mateo Marketing", role: Role.PROVIDER },
-  { id: "seed_user_admin", email: "admin@conecta.test", name: "Admin Reviewer", role: Role.ADMIN },
-  { id: "seed_user_superadmin", email: "superadmin@conecta.test", name: "Super Admin", role: Role.ADMIN },
+  { id: "seed_user_admin", email: "admin@conecta.test", name: "Admin Reviewer", role: Role.ADMIN_REVIEWER },
+  { id: "seed_user_superadmin", email: "superadmin@conecta.test", name: "Super Admin", role: Role.SUPER_ADMIN },
 ] as const;
 
 const providerSeeds = [
@@ -672,7 +672,6 @@ async function main() {
   });
 
   console.log("Seed data ready.");
-  console.log(`Demo password for all seed users: ${PASSWORD}`);
   console.log("Try: requester@conecta.test, textil@conecta.test, cafe@conecta.test, equipos@conecta.test, admin@conecta.test, superadmin@conecta.test");
 }
 

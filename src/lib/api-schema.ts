@@ -59,3 +59,60 @@ export const loginSchema = z.object({
 export const refreshSchema = z.object({
   refreshToken: z.string().optional(),
 });
+
+const optionalTrimmedText = z.string().trim().optional();
+const requiredReason = z.string().trim().min(1, "La razón es obligatoria").max(2000);
+const reviewScore = z.number().min(0, "La puntuación mínima es 0").max(5, "La puntuación máxima es 5");
+
+export const quoteMessageSchema = z.object({ text: z.string().trim().min(1, "El mensaje es obligatorio").max(10000) });
+
+export const quoteUpdateSchema = z.object({
+  status: z.enum(["OPEN", "IN_CONVERSATION", "QUOTE_SENT", "QUOTE_ACCEPTED", "COMPLETED", "CLOSED_REQUESTER", "CLOSED_PROVIDER", "CANCELLED"]).optional(),
+  quotedPriceLabel: optionalTrimmedText,
+  quotedDeliveryTime: optionalTrimmedText,
+  confirmedByRequesterAt: z.union([z.boolean(), z.string().datetime()]).optional(),
+  confirmedByProviderAt: z.union([z.boolean(), z.string().datetime()]).optional(),
+});
+
+export const riskReportQuerySchema = z.object({
+  status: z.enum(["OPEN", "UNDER_REVIEW", "DISMISSED", "ESCALATED", "ACTION_TAKEN"]).optional(),
+});
+
+export const riskReportStatusSchema = z.object({
+  status: z.enum(["UNDER_REVIEW", "DISMISSED", "ESCALATED", "ACTION_TAKEN"]),
+  reviewerNotes: optionalTrimmedText,
+  reason: optionalTrimmedText,
+});
+
+export const riskReportEscalateSchema = z.object({ reviewerNotes: optionalTrimmedText, reason: optionalTrimmedText })
+  .refine((value) => Boolean(value.reviewerNotes || value.reason), { message: "Agregá una nota para escalar el reporte" });
+
+export const providerSuspendSchema = z.object({
+  reason: requiredReason,
+  suspendedUntil: z.string().datetime({ message: "La fecha de suspensión no es válida" }).optional(),
+});
+
+export const providerModerationReasonSchema = z.object({ reason: requiredReason });
+
+export const providerCreateSchema = z.object({
+  displayName: z.string().trim().min(1).max(120),
+  category: z.string().trim().min(1).max(120),
+  mainCategory: optionalTrimmedText,
+  shortDescription: optionalTrimmedText,
+  aboutDescription: z.string().trim().min(40).max(5000),
+  logoUrl: z.string().trim().url().or(z.literal("")).optional(),
+  coverImageUrl: z.string().trim().url().or(z.literal("")).optional(),
+  city: optionalTrimmedText,
+  serviceRadius: optionalTrimmedText,
+  priceRange: optionalTrimmedText,
+  availability: z.enum(["DISPONIBLE", "OCUPADO", "BAJO_PEDIDO", "NO_DISPONIBLE_TEMPORALMENTE"]).optional(),
+  formalizationStatus: z.enum(["INFORMAL", "EN_PROCESO", "MIPYME_FORMAL", "DOCUMENTOS_PENDIENTES"]).optional(),
+  responseTimeHrs: z.coerce.number().int().min(1).max(8760).optional(),
+});
+
+export const reviewCreateSchema = z.object({
+  providerId: z.string().min(1), requestId: z.string().min(1), qualityScore: reviewScore,
+  responseTimeScore: reviewScore.optional(), fulfillmentScore: reviewScore.optional(),
+  communicationScore: reviewScore.optional(), valueScore: reviewScore.optional(),
+  comment: z.string().trim().max(5000).optional(),
+});

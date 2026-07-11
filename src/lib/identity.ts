@@ -20,12 +20,12 @@ export const PROVIDER_STATUS_LABELS: Record<ProviderProfileStatus, string> = {
 };
 
 export const PROVIDER_STATUS_MEANING: Record<ProviderProfileStatus, string> = {
-  DRAFT: "Perfil editable que todavÃ­a no debe aparecer como proveedor pÃºblico normal.",
-  ACTIVE: "Puede aparecer en bÃºsqueda y recibir solicitudes.",
-  INACTIVE: "No se presenta como opciÃ³n activa hasta reactivarse.",
-  SUSPENDED: "No puede recibir nuevas solicitudes mientras dura la restricciÃ³n.",
+  DRAFT: "Perfil editable que todavía no debe aparecer como proveedor público normal.",
+  ACTIVE: "Puede aparecer en búsqueda y recibir solicitudes.",
+  INACTIVE: "No se presenta como opción activa hasta reactivarse.",
+  SUSPENDED: "No puede recibir nuevas solicitudes mientras dura la restricción.",
   BANNED: "No puede operar ni recibir solicitudes.",
-  TEMPORARILY_RESTRICTED: "Opera con restricciones y debe mostrar razÃ³n o fecha de fin cuando exista.",
+  TEMPORARILY_RESTRICTED: "Opera con restricciones y debe mostrar razón o fecha de fin cuando exista.",
 };
 
 export function getRoleLabel(roles: Array<string | null | undefined>): string {

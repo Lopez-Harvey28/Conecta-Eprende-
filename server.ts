@@ -16,6 +16,15 @@ import {
   formalizationUpdateSchema,
   registerSchema,
   loginSchema,
+  providerCreateSchema,
+  providerModerationReasonSchema,
+  providerSuspendSchema,
+  quoteMessageSchema,
+  quoteUpdateSchema,
+  reviewCreateSchema,
+  riskReportEscalateSchema,
+  riskReportQuerySchema,
+  riskReportStatusSchema,
 } from "./src/lib/api-schema";
 import {
   hashPassword,
@@ -147,7 +156,7 @@ async function startServer() {
     if (!payload) {
       return res.status(401).json({ success: false, error: "Sesión expirada" });
     }
-    (req as any).user = payload;
+    req.user = payload;
     next();
   };
 
@@ -188,7 +197,7 @@ async function startServer() {
   }
 
   const requireAdminReviewerOrSuperAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const { userId } = (req as any).user;
+    const { userId } = req.user;
     const roles = await getUserSystemRoles(userId);
     if (roles.has("ADMIN") || roles.has("ADMIN_REVIEWER") || roles.has("SUPER_ADMIN")) {
       return next();
@@ -197,7 +206,7 @@ async function startServer() {
   };
 
   const requireSuperAdmin = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const { userId } = (req as any).user;
+    const { userId } = req.user;
     const roles = await getUserSystemRoles(userId);
     if (roles.has("SUPER_ADMIN")) {
       return next();
@@ -471,7 +480,7 @@ async function startServer() {
   // GET /api/auth/me
   app.get("/api/auth/me", authenticate, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
       const user = await prisma.user.findUnique({
         where: { id: userId },
         select: {
@@ -734,7 +743,7 @@ async function startServer() {
     try {
       const providerId = req.query.providerId as string | undefined;
       const senderId = req.query.senderId as string | undefined;
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
 
       if (senderId) {
         if (senderId !== userId) {
@@ -764,7 +773,7 @@ async function startServer() {
   app.get("/api/quotes/:id", authenticate, async (req, res) => {
     try {
       const threadId = req.params.id;
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
       const { thread, role } = await getThreadParticipantRole(threadId, userId);
 
       if (!thread) {
@@ -818,7 +827,7 @@ async function startServer() {
         return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
       }
 
-      if (provider.userId === (req as any).user.userId) {
+      if (provider.userId === req.user.userId) {
         return res.status(409).json({
           success: false,
           error: "No podés solicitar una cotización a tu propio perfil.",
@@ -850,7 +859,7 @@ async function startServer() {
 
       // For authenticated requests, use the authenticated user as sender
       // For now, use a default senderId (will be replaced when auth is connected)
-      const senderId = (req as any).user.userId;
+      const senderId = req.user.userId;
 
       const newQuote = await createThread({
         senderId,
@@ -871,12 +880,10 @@ async function startServer() {
   app.post("/api/quotes/:id/messages", authenticate, async (req, res) => {
     try {
       const threadId = req.params.id;
-      const { text } = req.body;
-      const { userId } = (req as any).user;
-
-      if (!text) {
-        return res.status(400).json({ success: false, error: "El mensaje es obligatorio" });
-      }
+      const parsed = quoteMessageSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "El mensaje es inválido", details: parsed.error.issues });
+      const { text } = parsed.data;
+      const { userId } = req.user;
 
       const { thread, role } = await getThreadParticipantRole(threadId, userId);
 
@@ -905,14 +912,16 @@ async function startServer() {
   app.put("/api/quotes/:id", authenticate, async (req, res) => {
     try {
       const threadId = req.params.id;
+      const parsed = quoteUpdateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "La actualización es inválida", details: parsed.error.issues });
       const {
         status,
         quotedPriceLabel,
         quotedDeliveryTime,
         confirmedByRequesterAt,
         confirmedByProviderAt,
-      } = req.body;
-      const { userId } = (req as any).user;
+      } = parsed.data;
+      const { userId } = req.user;
 
       const { thread, role } = await getThreadParticipantRole(threadId, userId);
 
@@ -987,7 +996,9 @@ async function startServer() {
 
   app.get("/api/admin/risk-reports", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
     try {
-      const status = req.query.status as string | undefined;
+      const parsed = riskReportQuerySchema.safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Filtro de estado inválido", details: parsed.error.issues });
+      const { status } = parsed.data;
       const reports = await prisma.riskReport.findMany({
         where: status ? { status } : undefined,
         include: riskReportInclude,
@@ -1016,13 +1027,10 @@ async function startServer() {
 
   app.patch("/api/admin/risk-reports/:id/status", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
-      const { status, reviewerNotes, reason } = req.body as { status?: string; reviewerNotes?: string; reason?: string };
-      const allowedStatuses = new Set(["UNDER_REVIEW", "DISMISSED", "ESCALATED", "ACTION_TAKEN"]);
-
-      if (!status || !allowedStatuses.has(status)) {
-        return res.status(400).json({ success: false, error: "Estado de reporte inválido" });
-      }
+      const parsed = riskReportStatusSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Estado de reporte inválido", details: parsed.error.issues });
+      const { userId } = req.user;
+      const { status, reviewerNotes, reason } = parsed.data;
 
       const roles = await getUserSystemRoles(userId);
       if (status === "ACTION_TAKEN" && !roles.has("SUPER_ADMIN")) {
@@ -1074,12 +1082,11 @@ async function startServer() {
 
   app.post("/api/admin/risk-reports/:id/escalate", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
-      const { reviewerNotes, reason } = req.body as { reviewerNotes?: string; reason?: string };
-      const note = reviewerNotes?.trim() || reason?.trim();
-      if (!note) {
-        return res.status(400).json({ success: false, error: "Agregá una nota para escalar el reporte" });
-      }
+      const parsed = riskReportEscalateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Agregá una nota para escalar el reporte", details: parsed.error.issues });
+      const { userId } = req.user;
+      const { reviewerNotes, reason } = parsed.data;
+      const note = (reviewerNotes?.trim() || reason?.trim())!;
 
       const report = await prisma.riskReport.update({
         where: { id: req.params.id },
@@ -1150,10 +1157,11 @@ async function startServer() {
 
   app.post("/api/admin/providers/:providerId/suspend", authenticate, requireSuperAdmin, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
-      const { reason, suspendedUntil } = req.body as { reason?: string; suspendedUntil?: string };
-      if (!reason?.trim()) return res.status(400).json({ success: false, error: "La suspensión requiere una razón" });
-      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "SUSPENDED", reason.trim(), suspendedUntil || null);
+      const parsed = providerSuspendSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Los datos de suspensión son inválidos", details: parsed.error.issues });
+      const { userId } = req.user;
+      const { reason, suspendedUntil } = parsed.data;
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "SUSPENDED", reason, suspendedUntil || null);
       res.json({ success: true, data: provider });
     } catch (error) {
       if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
@@ -1165,10 +1173,10 @@ async function startServer() {
 
   app.post("/api/admin/providers/:providerId/ban", authenticate, requireSuperAdmin, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
-      const { reason } = req.body as { reason?: string };
-      if (!reason?.trim()) return res.status(400).json({ success: false, error: "El baneo requiere una razón" });
-      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "BANNED", reason.trim());
+      const parsed = providerModerationReasonSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "El baneo requiere una razón", details: parsed.error.issues });
+      const { userId } = req.user;
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "BANNED", parsed.data.reason);
       res.json({ success: true, data: provider });
     } catch (error) {
       if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
@@ -1179,10 +1187,10 @@ async function startServer() {
 
   app.post("/api/admin/providers/:providerId/reactivate", authenticate, requireSuperAdmin, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
-      const { reason } = req.body as { reason?: string };
-      if (!reason?.trim()) return res.status(400).json({ success: false, error: "La reactivación requiere una razón" });
-      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "ACTIVE", reason.trim());
+      const parsed = providerModerationReasonSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "La reactivación requiere una razón", details: parsed.error.issues });
+      const { userId } = req.user;
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "ACTIVE", parsed.data.reason);
       res.json({ success: true, data: provider });
     } catch (error) {
       if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
@@ -1224,17 +1232,11 @@ async function startServer() {
   // POST Create Provider Profile
   app.post("/api/providers", authenticate, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
-      const displayName = String(req.body.displayName || "").trim();
-      const category = String(req.body.category || "").trim();
-      const aboutDescription = String(req.body.aboutDescription || "").trim();
-
-      if (!displayName || !category || aboutDescription.length < 40) {
-        return res.status(400).json({
-          success: false,
-          error: "Completá nombre, categoría y una descripción de al menos 40 caracteres",
-        });
-      }
+      const parsed = providerCreateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Los datos del proveedor son inválidos", details: parsed.error.issues });
+      const { userId } = req.user;
+      const input = parsed.data;
+      const { displayName, category, aboutDescription } = input;
 
       const baseSlug = slugifyProviderName(displayName);
       let slug = baseSlug;
@@ -1243,26 +1245,26 @@ async function startServer() {
         slug = `${baseSlug}-${suffix++}`;
       }
 
-      const legacyCity = normalizeCity(req.body.city) || LegacyCity.MANAGUA;
+      const legacyCity = normalizeCity(input.city) || LegacyCity.MANAGUA;
       const cityRef = await ensureCityReference(legacyCity);
-      const mainCategory = String(req.body.mainCategory || category).trim();
+      const mainCategory = String(input.mainCategory || category).trim();
       const rootCategory = await ensureCategoryReference(category);
       const primaryCategory = await ensureCategoryReference(mainCategory, rootCategory.id);
-      const responseTimeHrs = Math.max(1, Number(req.body.responseTimeHrs) || 1);
+      const responseTimeHrs = input.responseTimeHrs || 1;
 
       const provider = await prisma.provider.create({
         data: {
           userId,
           displayName,
           slug,
-          shortDescription: String(req.body.shortDescription || "").trim() || null,
+          shortDescription: input.shortDescription || null,
           aboutDescription,
-          logoUrl: String(req.body.logoUrl || "").trim() || null,
-          coverImageUrl: String(req.body.coverImageUrl || "").trim() || null,
+          logoUrl: input.logoUrl || null,
+          coverImageUrl: input.coverImageUrl || null,
           city: legacyCity,
           cityId: cityRef.id,
           department: cityRef.departmentId ? cityMetadata[legacyCity].department : null,
-          serviceRadius: String(req.body.serviceRadius || "").trim() || null,
+          serviceRadius: input.serviceRadius || null,
           category,
           mainCategory,
           categoryLinks: {
@@ -1271,9 +1273,9 @@ async function startServer() {
               ...(primaryCategory.id !== rootCategory.id ? [{ categoryId: primaryCategory.id, isPrimary: true }] : []),
             ],
           },
-          priceRange: String(req.body.priceRange || "").trim() || null,
-          availability: normalizeAvailability(req.body.availability),
-          formalizationStatus: normalizeFormalizationStatus(req.body.formalizationStatus),
+          priceRange: input.priceRange || null,
+          availability: normalizeAvailability(input.availability),
+          formalizationStatus: normalizeFormalizationStatus(input.formalizationStatus),
           responseTimeHrs,
           metrics: {
             create: {
@@ -1303,7 +1305,7 @@ async function startServer() {
   app.put("/api/providers/:id", authenticate, async (req, res) => {
     try {
       const providerId = req.params.id;
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
 
       // Verify the authenticated user owns this provider
       const existing = await prisma.provider.findUnique({
@@ -1396,7 +1398,7 @@ async function startServer() {
   // POST Create Catalog Item
   app.post("/api/catalog-items", authenticate, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
       const { providerId, title, itemType, category, subcategory, description, priceMin, priceMax, currency, priceUnit, city, availabilityStatus, deliveryAvailable, pickupAvailable, mainImageUrl } = req.body;
 
       if (!providerId || !title || !itemType || !category || !description) {
@@ -1461,7 +1463,7 @@ async function startServer() {
   // PUT Update Catalog Item
   app.put("/api/catalog-items/:id", authenticate, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
       const itemId = req.params.id;
 
       const existing = await prisma.catalogItem.findUnique({
@@ -1528,7 +1530,7 @@ async function startServer() {
   // DELETE Catalog Item
   app.delete("/api/catalog-items/:id", authenticate, async (req, res) => {
     try {
-      const { userId } = (req as any).user;
+      const { userId } = req.user;
       const itemId = req.params.id;
 
       const existing = await prisma.catalogItem.findUnique({
@@ -1641,12 +1643,10 @@ async function startServer() {
   // POST Create Review
   app.post("/api/reviews", authenticate, async (req, res) => {
     try {
-      const { providerId, requestId, qualityScore, responseTimeScore, fulfillmentScore, communicationScore, valueScore, comment } = req.body;
-      const { userId } = (req as any).user;
-
-      if (!providerId || !requestId || !qualityScore) {
-        return res.status(400).json({ success: false, error: "Faltan campos obligatorios" });
-      }
+      const parsed = reviewCreateSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Los datos de la reseña son inválidos", details: parsed.error.issues });
+      const { providerId, requestId, qualityScore, responseTimeScore, fulfillmentScore, communicationScore, valueScore, comment } = parsed.data;
+      const { userId } = req.user;
 
       const request = await prisma.quoteThread.findUnique({
         where: { id: requestId },
@@ -1669,7 +1669,7 @@ async function startServer() {
         return res.status(403).json({ success: false, error: "No podés reseñar tu propio perfil" });
       }
 
-      const generalScore = (qualityScore + (responseTimeScore || qualityScore) + (fulfillmentScore || qualityScore) + (communicationScore || qualityScore) + (valueScore || qualityScore)) / 5;
+      const generalScore = (qualityScore + (responseTimeScore ?? qualityScore) + (fulfillmentScore ?? qualityScore) + (communicationScore ?? qualityScore) + (valueScore ?? qualityScore)) / 5;
 
       const review = await prisma.review.create({
         data: {
@@ -1677,10 +1677,10 @@ async function startServer() {
           reviewerId: userId,
           requestId,
           qualityScore,
-          responseTimeScore: responseTimeScore || qualityScore,
-          fulfillmentScore: fulfillmentScore || qualityScore,
-          communicationScore: communicationScore || qualityScore,
-          valueScore: valueScore || qualityScore,
+          responseTimeScore: responseTimeScore ?? qualityScore,
+          fulfillmentScore: fulfillmentScore ?? qualityScore,
+          communicationScore: communicationScore ?? qualityScore,
+          valueScore: valueScore ?? qualityScore,
           generalScore,
           comment,
           analysis: {

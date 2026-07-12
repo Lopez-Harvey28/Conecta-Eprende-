@@ -37,9 +37,11 @@ Provider profile statuses used or reserved by the MVP contract:
 - `INACTIVE`: intentionally not operating, reserved for future lifecycle controls.
 - `SUSPENDED`: visible with restriction messaging, cannot receive new requests.
 - `BANNED`: visible with stronger restriction messaging, cannot receive new requests.
-- `TEMPORARILY_RESTRICTED`: reserved for a suspension-like state with reason and end date.
+- `TEMPORARILY_RESTRICTED`: visible en catálogo con banner de restricción; puede recibir solicitudes.
 
 Account-level `SUSPENDED` and `BANNED` behavior remains future backend work. Current enforcement is provider-level.
+
+**Visibilidad del catálogo**: los ítems de catálogo heredan la visibilidad del proveedor owner. Si el provider status permite visibilidad pública (`ACTIVE` o `TEMPORARILY_RESTRICTED`), los ítems se muestran en búsqueda. Para `DRAFT`, `INACTIVE`, `SUSPENDED` y `BANNED`, solo el owner puede ver su catálogo.
 
 Legal/MIPYME formalization is not an active profile status, trust signal, badge or search filter. Legacy fields may remain for compatibility but must not be shown as supported MVP verification.
 

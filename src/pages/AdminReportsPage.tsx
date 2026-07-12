@@ -213,6 +213,15 @@ export default function AdminReportsPage() {
                 </div>
               </section>
 
+              {canReview && !isSuperAdmin && (
+                <section className="content-section">
+                  <h2>Acciones de revisión</h2>
+                  <div className="report-actions">
+                    <button className="button secondary" type="button" onClick={() => moderateProvider("inactivate")}><Clock3 /> Inactivar</button>
+                  </div>
+                </section>
+              )}
+
               {isSuperAdmin && (
                 <section className="content-section">
                   <h2>Acciones de super administración</h2>
@@ -228,7 +237,6 @@ export default function AdminReportsPage() {
                     <div className="report-actions">
                       <button className="button secondary"><AlertTriangle /> Suspender</button>
                       <button className="button secondary" type="button" onClick={() => moderateProvider("restrict")}><AlertCircle /> Restringir</button>
-                      <button className="button secondary" type="button" onClick={() => moderateProvider("inactivate")}><Clock3 /> Inactivar</button>
                       <button className="button secondary" type="button" onClick={() => moderateProvider("reactivate")}><RotateCcw /> Reactivar</button>
                       <button className="button primary danger" type="button" onClick={() => moderateProvider("ban")}><Ban /> Banear</button>
                     </div>

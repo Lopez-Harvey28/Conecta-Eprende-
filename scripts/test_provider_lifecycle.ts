@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import {
   PROVIDER_STATUSES,
-  PUBLICLY_VISIBLE_STATUSES,
-  QUOTE_RECEIVING_STATUSES,
   VALID_TRANSITIONS,
   isPubliclyVisible,
   canReceiveQuotes,

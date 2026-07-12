@@ -40,6 +40,78 @@ export function getProviderStatusLabel(status?: string | null): string {
   return PROVIDER_STATUS_LABELS[normalized] || status || PROVIDER_STATUS_LABELS.ACTIVE;
 }
 
+// --- Predicados de ciclo de vida (frontend) ---------------------------------
+// Estos reflejan la fuente de verdad en src/lib/providers-service.ts. Se
+// exponen aquí para que el frontend no duplique `status === "SUSPENDED" || ...`.
+
+/** Puede recibir solicitudes de cotización: ACTIVE o TEMPORARILY_RESTRICTED. */
+export function canReceiveRequests(status?: string | null): boolean {
+  const normalized = (status || "ACTIVE") as ProviderProfileStatus;
+  return normalized === "ACTIVE" || normalized === "TEMPORARILY_RESTRICTED";
+}
+
+/** Puede aparecer en búsqueda y mapa público: ACTIVE o TEMPORARILY_RESTRICTED. */
+export function isPubliclyListable(status?: string | null): boolean {
+  const normalized = (status || "ACTIVE") as ProviderProfileStatus;
+  return normalized === "ACTIVE" || normalized === "TEMPORARILY_RESTRICTED";
+}
+
+/** Sancionado (degrada ranking y deshabilita CTA): SUSPENDED o BANNED. */
+export function isSanctionedStatus(status?: string | null): boolean {
+  const normalized = (status || "ACTIVE") as ProviderProfileStatus;
+  return normalized === "SUSPENDED" || normalized === "BANNED";
+}
+
+/** Bloquea recepción de solicitudes pero con tratamiento distinto a sanción. */
+export function isLifecycleBlockingStatus(status?: string | null): boolean {
+  const normalized = (status || "ACTIVE") as ProviderProfileStatus;
+  return (
+    normalized === "DRAFT" ||
+    normalized === "INACTIVE" ||
+    normalized === "SUSPENDED" ||
+    normalized === "BANNED"
+  );
+}
+
+export interface ProviderStatusBanner {
+  tone: "info" | "warn" | "danger";
+  heading: string;
+  body: string;
+}
+
+/** Copy en español para el banner de cada estado no-ACTIVE. */
+export function getProviderStatusBanner(status?: string | null): ProviderStatusBanner | null {
+  const normalized = (status || "ACTIVE") as ProviderProfileStatus;
+  const map: Record<Exclude<ProviderProfileStatus, "ACTIVE">, ProviderStatusBanner> = {
+    DRAFT: {
+      tone: "info",
+      heading: "Perfil en borrador",
+      body: "Este perfil aún no está publicado y no puede recibir solicitudes.",
+    },
+    INACTIVE: {
+      tone: "info",
+      heading: "Perfil inactivo",
+      body: "Este proveedor está inactivo temporalmente y no recibe nuevas solicitudes.",
+    },
+    TEMPORARILY_RESTRICTED: {
+      tone: "warn",
+      heading: "Proveedor restringido temporalmente",
+      body: "Este perfil está bajo revisión temporal. Puede recibir solicitudes con demora.",
+    },
+    SUSPENDED: {
+      tone: "warn",
+      heading: "Perfil suspendido",
+      body: "Este perfil está suspendido temporalmente y no puede recibir nuevas solicitudes.",
+    },
+    BANNED: {
+      tone: "danger",
+      heading: "Perfil baneado",
+      body: "Este perfil no puede operar ni recibir nuevas solicitudes.",
+    },
+  };
+  return map[normalized as Exclude<ProviderProfileStatus, "ACTIVE">] ?? null;
+}
+
 export interface UserAccount {
   id:string;
   email:string;

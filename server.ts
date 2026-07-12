@@ -856,10 +856,9 @@ async function startServer() {
       }
 
       if (!canReceiveQuotes(provider.status)) {
-        const statusMessages: Record<ProviderStatus, string> = {
+        const statusMessages: Partial<Record<ProviderStatus, string>> = {
           DRAFT: "Este proveedor está en borrador y no puede recibir solicitudes todavía.",
           INACTIVE: "Este proveedor está inactivo y no puede recibir solicitudes.",
-          TEMPORARILY_RESTRICTED: "Este proveedor está restringido temporalmente. Podés contactarlo más tarde.",
           SUSPENDED: "Este proveedor está suspendido temporalmente y no puede recibir nuevas solicitudes.",
           BANNED: "Este proveedor está baneado y no puede recibir nuevas solicitudes.",
           ACTIVE: "",

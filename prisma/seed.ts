@@ -45,6 +45,9 @@ const users = [
   { id: "seed_user_provider_marketing", email: "marketing@conecta.test", name: "Mateo Marketing", role: Role.PROVIDER },
   { id: "seed_user_admin", email: "admin@conecta.test", name: "Admin Reviewer", role: Role.ADMIN_REVIEWER },
   { id: "seed_user_superadmin", email: "superadmin@conecta.test", name: "Super Admin", role: Role.SUPER_ADMIN },
+  { id: "seed_user_provider_draft", email: "draft@conecta.test", name: "Sofía Bordados", role: Role.PROVIDER },
+  { id: "seed_user_provider_inactive", email: "inactive@conecta.test", name: "Cajas y Más", role: Role.PROVIDER },
+  { id: "seed_user_provider_restricted", email: "restricted@conecta.test", name: "Digital Express", role: Role.PROVIDER },
 ] as const;
 
 const providerSeeds = [
@@ -208,6 +211,84 @@ const providerSeeds = [
     catalog: [
       { id: "seed_item_marketing_campana", title: "Campaña para lanzamiento", itemType: "SERVICIO_ESPECIALIZADO", subcategory: "Campañas", priceMin: 2500, priceMax: 9000, priceUnit: "proyecto" },
       { id: "seed_item_marketing_fotos", title: "Fotografía de producto", itemType: "SERVICIO_ESPECIALIZADO", subcategory: "Fotografía", priceMin: 1200, priceMax: 3500, priceUnit: "sesión" },
+    ],
+  },
+  {
+    id: "seed_provider_draft",
+    userId: "seed_user_provider_draft",
+    displayName: "Sofía Bordados Draft",
+    slug: "sofia-bordados-draft",
+    city: LegacyCity.MASAYA,
+    category: "Bordado y serigrafía",
+    mainCategory: "Textil personalizado",
+    shortDescription: "Bordados personalizados para negocios locales.",
+    aboutDescription: "Pequeño taller de bordados con años de experiencia. Perfil en construcción para validar el flujo de publicación.",
+    priceRange: "MEDIUM",
+    availability: Availability.DISPONIBLE,
+    formalizationStatus: FormalizationStatus.EN_PROCESO,
+    verified: false,
+    verificationLevel: "PHONE",
+    completedRequests: 0,
+    responseTimeHrs: 4,
+    lat: 11.9900,
+    lng: -86.0880,
+    trust: 45,
+    image: "https://images.unsplash.com/photo-1558618666-fcd25c85cd64?auto=format&fit=crop&w=1200&q=80",
+    medals: [],
+    catalog: [],
+  },
+  {
+    id: "seed_provider_inactive",
+    userId: "seed_user_provider_inactive",
+    displayName: "Cajas y Más Inactiva",
+    slug: "cajas-y-mas-inactiva",
+    city: LegacyCity.GRANADA,
+    category: "Empaques ecológicos",
+    mainCategory: "Empaques biodegradables",
+    shortDescription: "Cajas, etiquetas y bolsas sostenibles para marcas.",
+    aboutDescription: "Proveedor de empaques responsables para alimentos, café y cosmética artesanal. Cuenta actualmente inactiva.",
+    priceRange: "HIGH",
+    availability: Availability.DISPONIBLE,
+    formalizationStatus: FormalizationStatus.MIPYME_FORMAL,
+    verified: true,
+    verificationLevel: "COMPLETE",
+    completedRequests: 15,
+    responseTimeHrs: 3,
+    lat: 11.9280,
+    lng: -85.9620,
+    trust: 78,
+    image: "https://images.unsplash.com/photo-1604719312566-8912e9227c6a?auto=format&fit=crop&w=1200&q=80",
+    medals: ["PERFIL_COMPLETO", "MIPYME_FORMAL"],
+    catalog: [
+      { id: "seed_item_inactive_kraft", title: "Empaque kraft para café", itemType: "INSUMO", subcategory: "Cajas kraft", priceMin: 6, priceMax: 14, priceUnit: "unidad" },
+      { id: "seed_item_inactive_bolsas", title: "Bolsas de papel personalizadas", itemType: "INSUMO", subcategory: "Bolsas", priceMin: 3, priceMax: 10, priceUnit: "unidad" },
+    ],
+  },
+  {
+    id: "seed_provider_restricted",
+    userId: "seed_user_provider_restricted",
+    displayName: "Digital Express Restringido",
+    slug: "digital-express-restringido",
+    city: LegacyCity.MATAGALPA,
+    category: "Marketing digital",
+    mainCategory: "Contenido y campañas",
+    shortDescription: "Gestión de redes sociales y campañas para PyMEs.",
+    aboutDescription: "Agencia de contenido y campañas digitales para pequeños negocios. Restringido temporalmente por revisión pendiente.",
+    priceRange: "MEDIUM",
+    availability: Availability.DISPONIBLE,
+    formalizationStatus: FormalizationStatus.INFORMAL,
+    verified: false,
+    verificationLevel: "PHONE",
+    completedRequests: 3,
+    responseTimeHrs: 8,
+    lat: 12.9100,
+    lng: -85.9300,
+    trust: 55,
+    image: "https://images.unsplash.com/photo-1432888498266-38ffec3eaf0a?auto=format&fit=crop&w=1200&q=80",
+    medals: ["TELEFONO_VERIFICADO"],
+    catalog: [
+      { id: "seed_item_restricted_redes", title: "Gestión mensual de redes", itemType: "SERVICIO_ESPECIALIZADO", subcategory: "Redes sociales", priceMin: 1800, priceMax: 5000, priceUnit: "mes" },
+      { id: "seed_item_restricted_diseno", title: "Diseño de contenido mensual", itemType: "SERVICIO_ESPECIALIZADO", subcategory: "Diseño", priceMin: 1200, priceMax: 3500, priceUnit: "mes" },
     ],
   },
 ] as const;
@@ -374,6 +455,9 @@ async function main() {
       { id: "seed_role_provider_empaques", userId: "seed_user_provider_empaques", role: "PROVIDER", createdAt: now, updatedAt: now },
       { id: "seed_role_provider_cafe", userId: "seed_user_provider_cafe", role: "PROVIDER", createdAt: now, updatedAt: now },
       { id: "seed_role_provider_equipo", userId: "seed_user_provider_equipo", role: "PROVIDER", createdAt: now, updatedAt: now },
+      { id: "seed_role_provider_draft", userId: "seed_user_provider_draft", role: "PROVIDER", createdAt: now, updatedAt: now },
+      { id: "seed_role_provider_inactive", userId: "seed_user_provider_inactive", role: "PROVIDER", createdAt: now, updatedAt: now },
+      { id: "seed_role_provider_restricted", userId: "seed_user_provider_restricted", role: "PROVIDER", createdAt: now, updatedAt: now },
       { id: "seed_role_admin_reviewer", userId: "seed_user_admin", role: "ADMIN_REVIEWER", createdAt: now, updatedAt: now },
       { id: "seed_role_super_admin", userId: "seed_user_superadmin", role: "SUPER_ADMIN", createdAt: now, updatedAt: now },
     ],
@@ -400,15 +484,34 @@ async function main() {
         aboutDescription: provider.aboutDescription,
         priceRange: provider.priceRange,
         availability: provider.availability,
-        status: provider.id === "seed_provider_cafe" ? "SUSPENDED" : provider.id === "seed_provider_equipos" ? "BANNED" : "ACTIVE",
-        statusReason: provider.id === "seed_provider_cafe"
+        status: (provider.id === "seed_provider_cafe" ? "SUSPENDED"
+          : provider.id === "seed_provider_equipos" ? "BANNED"
+          : provider.id === "seed_provider_draft" ? "DRAFT"
+          : provider.id === "seed_provider_inactive" ? "INACTIVE"
+          : provider.id === "seed_provider_restricted" ? "TEMPORARILY_RESTRICTED"
+          : "ACTIVE") as any,
+        statusReason: (provider.id === "seed_provider_cafe"
           ? "Caso semilla: revisión temporal por señales agregadas de riesgo."
           : provider.id === "seed_provider_equipos"
             ? "Caso semilla: baneo para pruebas de restricción."
-            : null,
-        suspendedUntil: provider.id === "seed_provider_cafe" ? new Date("2026-08-07T12:00:00.000Z") : null,
-        statusUpdatedAt: provider.id === "seed_provider_cafe" || provider.id === "seed_provider_equipos" ? now : null,
-        statusUpdatedById: provider.id === "seed_provider_cafe" || provider.id === "seed_provider_equipos" ? "seed_user_superadmin" : null,
+          : provider.id === "seed_provider_draft"
+            ? "Caso semilla: proveedor en modo borrador — sin publicar."
+          : provider.id === "seed_provider_inactive"
+            ? "Caso semilla: proveedor inactivado manualmente por el equipo."
+          : provider.id === "seed_provider_restricted"
+            ? "Caso semilla: restringido temporalmente por revisión de contenido."
+          : null) as string | null,
+        suspendedUntil: (provider.id === "seed_provider_cafe"
+          ? new Date("2026-08-07T12:00:00.000Z")
+          : provider.id === "seed_provider_restricted"
+            ? new Date("2026-07-19T12:00:00.000Z")
+          : null) as Date | null,
+        statusUpdatedAt: (provider.id === "seed_provider_cafe" || provider.id === "seed_provider_equipos" || provider.id === "seed_provider_draft" || provider.id === "seed_provider_inactive" || provider.id === "seed_provider_restricted"
+          ? now
+          : null) as Date | null,
+        statusUpdatedById: (provider.id === "seed_provider_cafe" || provider.id === "seed_provider_equipos" || provider.id === "seed_provider_draft" || provider.id === "seed_provider_inactive" || provider.id === "seed_provider_restricted"
+          ? "seed_user_superadmin"
+          : null) as string | null,
         formalizationStatus: provider.formalizationStatus,
         verified: provider.verified,
         verificationLevel: provider.verificationLevel,

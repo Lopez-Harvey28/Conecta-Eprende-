@@ -24,6 +24,7 @@ export interface ProviderSearchResult {
   photos: string[];
   lat: number | null;
   lng: number | null;
+  finalScore?: number;
 }
 
 export interface FullProvider {
@@ -41,8 +42,11 @@ interface ProvidersState {
   currentProvider: FullProvider | null;
   isLoading: boolean;
   error: string | null;
+  aiUsed: boolean;
+  aiIntent: { category: string | null; city: string | null; urgency: string | null; maxPriceNIO: number | null } | null;
 
   searchProviders: (params: { q?: string; city?: string }) => Promise<void>;
+  searchProvidersAI: (params: { query: string }) => Promise<void>;
   getProvider: (idOrSlug: string) => Promise<FullProvider | null>;
   clearCurrentProvider: () => void;
 }
@@ -123,6 +127,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
   currentProvider: null,
   isLoading: false,
   error: null,
+  aiUsed: false,
+  aiIntent: null,
 
   searchProviders: async ({ q, city }) => {
     set({ isLoading: true, error: null });
@@ -141,9 +147,37 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         throw new Error(data.error || "Error al buscar proveedores");
       }
 
-      set({ providers: data.data, isLoading: false });
+      set({ providers: data.data, isLoading: false, aiUsed: false, aiIntent: null });
     } catch (error) {
       console.error("searchProviders error:", error);
+      set({ error: (error as Error).message, isLoading: false });
+    }
+  },
+
+  searchProvidersAI: async ({ query }) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch("/api/providers/ai-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+        credentials: "include",
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Error en búsqueda IA");
+      }
+
+      set({
+        providers: data.data,
+        isLoading: false,
+        aiUsed: data.usedAi ?? true,
+        aiIntent: data.intent ?? null,
+      });
+    } catch (error) {
+      console.error("searchProvidersAI error:", error);
       set({ error: (error as Error).message, isLoading: false });
     }
   },

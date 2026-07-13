@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { CalendarCheck, List, Map, MapPin, Search, SlidersHorizontal, Sparkles } from "lucide-react";
 import MvpProviderMap, { type SearchMapProvider } from "../components/map/MvpProviderMap";
@@ -6,6 +6,7 @@ import { CATEGORY_OPTIONS, CREATIVE_CITIES, type CreativeCity, type PriceRange }
 import { useProvidersStore, type ProviderSearchResult } from "../stores/providers-store";
 import { useAuthStore } from "../stores/auth-store";
 import { AvailabilityBadge, EmptyState, PriceBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
+import { isSanctionedStatus } from "../lib/identity";
 
 const availabilityLabel: Record<string, string> = {
   DISPONIBLE: "Disponible",
@@ -21,43 +22,10 @@ const priceLabel: Record<string, string> = {
   NEGOTIABLE: "A negociar",
 };
 
-const aliases: Record<string, string> = {
-  empaque: "Empaques ecológicos",
-  empaques: "Empaques ecológicos",
-  logo: "Diseño gráfico",
-  diseño: "Diseño gráfico",
-  camiseta: "Bordado y serigrafía",
-  bordada: "Bordado y serigrafía",
-  café: "Café y alimentos",
-  foto: "Fotografía",
-  marketing: "Marketing digital",
-  muebles: "Muebles y carpintería",
-  web: "Servicios tecnológicos",
-  agrícola: "Insumos agrícolas",
-};
-
 const norm = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
-function extractIntent(query: string) {
-  const normalized = norm(query);
-  const city = CREATIVE_CITIES.find(item => normalized.includes(norm(item))) || null;
-  const alias = Object.keys(aliases).find(item => normalized.includes(norm(item)));
-  const category = alias ? aliases[alias] : null;
-  const budget: PriceRange | null =
-    /barato|economico|accesible/.test(normalized) ? "LOW" :
-    /premium|exportacion|alta calidad/.test(normalized) ? "HIGH" :
-    /profesional|calidad/.test(normalized) ? "MEDIUM" : null;
-  return {
-    city,
-    category,
-    budget,
-    urgency: /urgente|hoy|rapido/.test(normalized) ? "URGENTE" : "NORMAL",
-    keywords: normalized.split(/\s+/).filter(word => word.length > 3),
-  };
-}
-
 export default function SearchPage() {
-  const { providers, searchProviders, isLoading } = useProvidersStore();
+  const { providers, searchProvidersAI, isLoading, aiUsed, aiIntent } = useProvidersStore();
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -71,41 +39,37 @@ export default function SearchPage() {
   const [mobileView, setMobileView] = useState<"list" | "map">("list");
   const cardRefs = useRef<Record<string, HTMLElement | null>>({});
 
-  const intent = useMemo(() => extractIntent(query), [query]);
   const ownedProviderId = user?.providers?.[0]?.id || user?.providerProfileId;
 
   useEffect(() => {
-    searchProviders({ q: params.get("query") || undefined, city: params.get("city") || undefined });
+    const q = params.get("query") || "";
+    const c = params.get("city") || "";
+    if (q || c) {
+      searchProvidersAI({ query: q });
+    }
   }, []);
 
   const results = useMemo(() => {
-    return providers
+    const base = providers;
+
+    const cityFilter = city || aiIntent?.city || "";
+    const categoryFilter = category || aiIntent?.category || "";
+
+    return base
       .map((provider: ProviderSearchResult) => {
-        const cityTarget = (city || intent.city) as CreativeCity | null;
-        const categoryTarget = category || intent.category;
-        const text = norm(`${provider.displayName} ${provider.category} ${provider.shortDescription || ""}`);
-        const keywordHit = !query || intent.keywords.some(keyword => text.includes(keyword)) || !!categoryTarget;
-        const match = keywordHit &&
+        const cityTarget = cityFilter as CreativeCity | null;
+        const categoryTarget = categoryFilter;
+        const match =
           (!cityTarget || provider.city === cityTarget) &&
           (!categoryTarget || norm(provider.category).includes(norm(categoryTarget))) &&
           (!price || provider.priceRange === price) &&
           provider.trustScore >= trust;
 
-        const proximity = cityTarget ? (provider.city === cityTarget ? 100 : 25) : 70;
-        const priceMatch = intent.budget ? (provider.priceRange === intent.budget ? 100 : 40) : 70;
-        const availabilityScore = provider.status === "SUSPENDED" || provider.status === "BANNED"
-          ? -100
-          : provider.availability === "DISPONIBLE" ? 100 : provider.availability === "OCUPADO" ? 50 : 0;
-
-        return {
-          ...provider,
-          match,
-          rank: 0.35 * provider.trustScore + 0.25 * proximity + 0.20 * priceMatch + 0.20 * availabilityScore,
-        };
+        return { ...provider, match };
       })
       .filter((provider: any) => provider.match)
-      .sort((a: any, b: any) => b.rank - a.rank);
-  }, [providers, query, city, category, price, trust, intent]);
+      .sort((a: any, b: any) => (b.finalScore ?? b.trustScore) - (a.finalScore ?? a.trustScore));
+  }, [providers, city, category, price, trust, aiIntent]);
 
   const mapProviders = useMemo<SearchMapProvider[]>(() => {
     return results.map((provider: any) => ({
@@ -141,10 +105,18 @@ export default function SearchPage() {
     window.requestAnimationFrame(() => cardRefs.current[id]?.scrollIntoView({ behavior: "smooth", block: "center" }));
   };
 
+  const handleSearch = (e: FormEvent) => {
+    e.preventDefault();
+    const newParams: Record<string, string> = {};
+    if (query) newParams.query = query;
+    setParams(newParams);
+    searchProvidersAI({ query });
+  };
+
   return (
     <div className="search-page">
       <header className="search-toolbar">
-        <form onSubmit={event => { event.preventDefault(); setParams(query ? { query } : {}); }}>
+        <form onSubmit={handleSearch}>
           <Search />
           <input value={query} onChange={event => setQuery(event.target.value)} placeholder="¿Qué proveedor necesitás?" aria-label="Buscar proveedores" />
           <button>Buscar</button>
@@ -186,18 +158,27 @@ export default function SearchPage() {
         </aside>
 
         <main className={`results ${mobileView === "list" ? "mobile-active" : ""}`}>
-          <section className="intent-summary">
-            <Sparkles />
-            <div>
-              <strong>Entendimos tu búsqueda</strong>
-              <span>Categoría: {intent.category || "abierta"} · Ciudad: {intent.city || "cualquiera"} · Presupuesto: {intent.budget ? priceLabel[intent.budget] : "sin definir"}</span>
-            </div>
-          </section>
+          {aiIntent && (
+            <section className="intent-summary">
+              <Sparkles />
+              <div>
+                <strong>Entendimos tu búsqueda{aiUsed ? " con IA" : ""}</strong>
+                <span>
+                  {[
+                    aiIntent.category && `Categoría: ${aiIntent.category}`,
+                    aiIntent.city && `Ciudad: ${aiIntent.city}`,
+                    aiIntent.maxPriceNIO && `Presupuesto: hasta C$${aiIntent.maxPriceNIO.toLocaleString()}`,
+                    aiIntent.urgency === "alta" && "Urgencia: alta",
+                  ].filter(Boolean).join(" · ")}
+                </span>
+              </div>
+            </section>
+          )}
 
           <div className="results-heading">
             <div>
               <h1>{results.length} proveedores para comparar</h1>
-              <p>Ordenados por confianza, cercanía, precio y disponibilidad.</p>
+              <p>Ordenados por relevancia{aiUsed ? " IA" : ""}, confianza, cercanía y disponibilidad.</p>
             </div>
           </div>
 
@@ -245,7 +226,7 @@ export default function SearchPage() {
                     </div>
                     <div className="card-actions">
                       <Link className="button secondary" to={`/providers/${provider.id}`}>Ver perfil</Link>
-                      {provider.status === "SUSPENDED" || provider.status === "BANNED" ? (
+                      {isSanctionedStatus(provider.status) ? (
                         <span className="button secondary disabled">{provider.status === "BANNED" ? "Proveedor baneado" : "Proveedor suspendido"}</span>
                       ) : provider.id === ownedProviderId ? (
                         <Link className="button primary" to="/me/profile/edit">Editar mi perfil</Link>
@@ -263,7 +244,7 @@ export default function SearchPage() {
         <aside className={`map-panel ${mobileView === "map" ? "mobile-active" : ""}`} aria-label="Mapa interactivo de proveedores">
           <MvpProviderMap
             providers={mapProviders}
-            focusCity={(city || intent.city) || null}
+            focusCity={(city || aiIntent?.city || null) as string | null}
             hoveredId={hoveredId}
             selectedId={selectedId}
             onSelectProvider={setSelectedId}

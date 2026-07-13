@@ -29,7 +29,7 @@ export async function generateQuoteDraft(idea: string, providerName: string) {
     const prompt = `Proveedor al que se enviará: ${providerName}\nIdea del cliente: ${idea}`;
 
     const response = await aiInstance.models.generateContent({
-      model: "gemini-2.5-flash-lite",
+      model: "gemini-3.5-flash",
       contents: [
         { role: "user", parts: [{ text: prompt }] }
       ],

@@ -28,7 +28,7 @@ export async function generateEnhancedBio(bio: string, category: string) {
     const prompt = `Categoría del negocio: ${category}\nBiografía actual (para mejorar): ${bio}`;
 
     const response = await aiInstance.models.generateContent({
-      model: "gemini-2.5-flash-lite",
+      model: "gemini-3.5-flash",
       contents: [
         { role: "user", parts: [{ text: prompt }] }
       ],

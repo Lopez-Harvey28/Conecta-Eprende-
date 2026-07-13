@@ -103,7 +103,7 @@ Responde SOLO con el JSON de scores.`;
 
     try {
       const response = await aiInstance.models.generateContent({
-        model: "gemini-2.5-flash-lite",
+        model: "gemini-3.5-flash",
         contents: [{ role: "user", parts: [{ text: prompt }] }],
         config: {
           systemInstruction: SYSTEM_PROMPT_RANK,

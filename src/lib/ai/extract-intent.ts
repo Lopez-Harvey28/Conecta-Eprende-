@@ -88,7 +88,7 @@ export async function extractIntent(query: string): Promise<SearchIntent> {
     if (!aiInstance) throw new Error("AI client not initialized");
 
     const response = await aiInstance.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: "gemini-3.1-flash-lite",
       contents: [
         { role: "user", parts: [{ text: "Query: " + query }] }
       ],

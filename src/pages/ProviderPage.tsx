@@ -7,7 +7,7 @@ import {
 import { useProvidersStore } from "../stores/providers-store";
 import { useAuthStore } from "../stores/auth-store";
 import { EmptyState, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
-import { getProviderStatusLabel } from "../lib/identity";
+import { canReceiveRequests, isLifecycleBlockingStatus, getProviderStatusBanner } from "../lib/identity";
 
 const availabilityLabelMap: Record<string, string> = {
   DISPONIBLE: "Disponible",
@@ -101,7 +101,9 @@ export default function ProviderPage() {
 
   const isOwnProfile = (user?.providers?.[0]?.id || user?.providerProfileId) === provider.id;
   const providerStatus = provider.status || "ACTIVE";
-  const isRestrictedProvider = providerStatus === "SUSPENDED" || providerStatus === "BANNED";
+  const canRequest = canReceiveRequests(providerStatus);
+  const blockedFromQuotes = isLifecycleBlockingStatus(providerStatus);
+  const statusBanner = getProviderStatusBanner(providerStatus);
   const activeOfferCount = activeItems.length;
   const publicProfileSignal = trustScore >= 80 && activeOfferCount > 0 ? "Perfil comercial sólido" : "Perfil en construcción";
 
@@ -131,9 +133,9 @@ export default function ProviderPage() {
             <span className="badge"><ShieldCheck />{publicProfileSignal}</span>
           </div>
           <div className="provider-primary-actions">
-            {isRestrictedProvider ? (
+            {blockedFromQuotes ? (
               <span className="button secondary disabled">
-                {providerStatus === "BANNED" ? "Este proveedor no puede recibir solicitudes" : "Proveedor suspendido temporalmente"}
+                {statusBanner?.heading || "Este proveedor no puede recibir solicitudes"}
               </span>
             ) : isOwnProfile ? (
               <Link className="button primary" to="/me/profile/edit">
@@ -153,17 +155,16 @@ export default function ProviderPage() {
 
       <div className="provider-grid">
         <main>
-          {isRestrictedProvider && (
-            <section className={`provider-status-banner ${providerStatus.toLowerCase()}`}>
-              <h2>Perfil proveedor {getProviderStatusLabel(providerStatus).toLowerCase()}</h2>
+          {statusBanner && (
+            <section className={`provider-status-banner ${providerStatus.toLowerCase()} tone-${statusBanner.tone}`}>
+              <h2>{statusBanner.heading}</h2>
               <p>
-                {providerStatus === "BANNED"
-                  ? "Este perfil no puede recibir nuevas solicitudes."
-                  : "Este perfil está suspendido temporalmente y no puede recibir nuevas solicitudes."}
+                {statusBanner.body}
                 {provider.statusReason ? ` Razón: ${provider.statusReason}` : ""}
                 {provider.suspendedUntil ? ` Hasta: ${new Date(provider.suspendedUntil).toLocaleDateString("es-NI")}.` : ""}
               </p>
-              {isOwnProfile && <p className="form-note">Como dueño del perfil, podés revisar esta restricción con administración antes de operar de nuevo.</p>}
+              {canRequest && <p className="form-note">Aun con restricciones, este proveedor puede recibir nuevas solicitudes.</p>}
+              {isOwnProfile && !canRequest && <p className="form-note">Como dueño del perfil, podés revisar esta restricción con administración antes de operar de nuevo.</p>}
             </section>
           )}
 
@@ -239,7 +240,7 @@ export default function ProviderPage() {
                         </div>
                       </dl>
                       <div className="card-actions">
-                        {isRestrictedProvider ? (
+                        {blockedFromQuotes ? (
                           <span className="button secondary disabled">No disponible por estado del perfil</span>
                         ) : isOwnProfile ? (
                           <Link className="button primary" to={`/me/products/${offer.id}/edit`}>

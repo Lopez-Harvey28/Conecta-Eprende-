@@ -19,6 +19,15 @@ enum Role {
   SUPER_ADMIN
 }
 
+enum ProviderStatus {
+  DRAFT
+  ACTIVE
+  INACTIVE
+  TEMPORARILY_RESTRICTED
+  SUSPENDED
+  BANNED
+}
+
 enum LegacyCity {
   MANAGUA
   LEON
@@ -235,7 +244,7 @@ model Provider {
   deliveryOptions String[]
 
   availability        Availability        @default(DISPONIBLE)
-  status              String              @default("ACTIVE")
+  status              ProviderStatus      @default(DRAFT)
   statusReason        String?             @db.Text
   suspendedUntil      DateTime?
   statusUpdatedAt     DateTime?

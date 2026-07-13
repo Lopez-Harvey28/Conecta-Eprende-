@@ -5,6 +5,7 @@ import { createServer as createViteServer, type ViteDevServer } from "vite";
 import cookieParser from "cookie-parser";
 import { Availability, LegacyCity, FormalizationStatus, Prisma, ProviderStatus } from "@prisma/client";
 import { extractIntent } from "./src/lib/ai/extract-intent";
+import { rankProviders } from "./src/lib/ai/rank-providers";
 import { generateQuoteDraft } from "./src/lib/ai/quote-draft";
 import { generateEnhancedBio } from "./src/lib/ai/enhance-bio";
 import {
@@ -704,26 +705,38 @@ async function startServer() {
 
       const intent = await extractIntent(query);
 
-      // First get all providers matching city if provided
-      let providers = await searchProviders({ city: intent.city || undefined });
+      const providers = await searchProviders({
+        city: intent.city || undefined,
+        intent,
+      });
 
-      if (intent.category) {
-        const cat = intent.category.toLowerCase();
-        // Filter by category in-memory (matches mainCategory or category)
-        providers = providers.filter(p => {
-          const providerCats = ((p.category || "") + " " + (p.mainCategory || "")).toLowerCase();
-          if (providerCats.includes(cat)) return true;
-          return false;
-        });
-      } else if (intent.keywords && intent.keywords.length > 0) {
-        const kws = intent.keywords.map(k => k.toLowerCase()).filter(Boolean);
-        providers = providers.filter(p => {
-          const haystack = ((p.displayName || "") + " " + (p.category || "") + " " + (p.mainCategory || "")).toLowerCase();
-          return kws.some(k => haystack.includes(k));
-        });
-      }
+      const { scores: aiScores, usedAi } = await rankProviders(query, providers);
 
-      res.json({ success: true, intent, data: providers });
+      const ranked = providers.map((p) => {
+        const aiScore = aiScores[p.id] ?? 0;
+        const trustScore = p.trustScore ?? 0;
+
+        const availabilityScore = p.availability === "DISPONIBLE" ? 100
+          : p.availability === "OCUPADO" ? 50
+            : p.availability === "BAJO_PEDIDO" ? 25 : 0;
+
+        const proximityScore = intent.city
+          ? p.city.toLowerCase().includes(intent.city.toLowerCase()) ? 100 : 30
+          : 70;
+
+        const finalScore = Math.round(
+          0.50 * aiScore +
+          0.20 * trustScore +
+          0.15 * availabilityScore +
+          0.15 * proximityScore
+        );
+
+        return { ...p, finalScore };
+      });
+
+      ranked.sort((a, b) => b.finalScore - a.finalScore);
+
+      res.json({ success: true, intent, usedAi, data: ranked });
 
     } catch (error) {
       console.error("AI search error:", error);

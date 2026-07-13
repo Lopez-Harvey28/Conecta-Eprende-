@@ -1,5 +1,6 @@
 import { prisma } from "./db";
 import { LegacyCity, type ProviderStatus } from "@prisma/client";
+import type { SearchIntent } from "./ai/extract-intent";
 
 export const PROVIDER_STATUSES: ProviderStatus[] = [
   "DRAFT",
@@ -117,9 +118,10 @@ function categoryNamesFromLinks(categoryLinks?: Array<{ category: { name: string
 export async function searchProviders(params: {
   q?: string;
   city?: string;
+  intent?: SearchIntent;
   includeStatuses?: ProviderStatus[];
 }): Promise<ProviderSearchResult[]> {
-  const { q, city } = params;
+  const { q, city, intent } = params;
 
   let where: any = {};
 
@@ -206,11 +208,43 @@ export async function searchProviders(params: {
       const providerText = (
         p.displayName + " " + p.category + " " + (p.mainCategory || "")
       ).toLowerCase();
-      const providerMatch = words.some((w) => providerText.includes(w));
-      if (providerMatch) return true;
-
-      return false;
+      return words.some((w) => providerText.includes(w));
     });
+  }
+
+  if (intent) {
+    const norm = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    if (intent.category) {
+      const catNorm = norm(intent.category);
+      results = results.filter((p) =>
+        norm(p.category).includes(catNorm) ||
+        (p.mainCategory && norm(p.mainCategory).includes(catNorm))
+      );
+    }
+
+    if (intent.keywords.length > 0) {
+      const kwNorm = intent.keywords.map(norm);
+      results = results.filter((p) => {
+        const providerText = norm(
+          p.displayName + " " + p.category + " " + (p.mainCategory || "") + " " + (p.shortDescription || "")
+        );
+        return kwNorm.some((kw) => providerText.includes(kw));
+      });
+    }
+
+    if (intent.maxPriceNIO != null) {
+      const priceRangeMap: Record<string, number> = { LOW: 500, MEDIUM: 3000, HIGH: 15000 };
+      const maxPrice = intent.maxPriceNIO;
+      if (maxPrice < 500) {
+        results = results.filter((p) => p.priceRange === "LOW" || !p.priceRange);
+      } else if (maxPrice < 3000) {
+        results = results.filter((p) => p.priceRange !== "HIGH");
+      } else {
+        // No filter — all ranges are within budget
+      }
+    }
   }
 
   return results;

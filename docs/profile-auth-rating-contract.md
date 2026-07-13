@@ -100,8 +100,54 @@ Risk scoring uses aggregate behavior only and must not expose phone numbers, leg
 - `GET /providers/:id/trust-score`
 - `GET /admin/risk-reports`
 - `PATCH /admin/risk-reports/:id`
+- `POST /providers/ai-search` — búsqueda inteligente con IA
 
 Current MVP endpoints may still use in-memory data, but authorization must be enforced again in the backend once real login/session middleware is connected.
+
+## AI Search contract
+
+`POST /api/providers/ai-search` — Búsqueda inteligente de proveedores con Gemini.
+
+**Request:**
+```json
+{ "query": "diseño de logo en managua" }
+```
+
+**Response:**
+```json
+{
+  "success": true,
+  "intent": {
+    "category": "Diseño Gráfico",
+    "city": "Managua",
+    "maxPriceNIO": null,
+    "urgency": null,
+    "keywords": ["diseño", "logo"]
+  },
+  "usedAi": true,
+  "data": [
+    {
+      "id": "...",
+      "displayName": "...",
+      "category": "...",
+      "trustScore": 88,
+      "finalScore": 82,
+      ...
+    }
+  ]
+}
+```
+
+El endpoint:
+1. Envía la query a Gemini para extraer `intent` (categoría, ciudad, presupuesto, urgencia, keywords)
+2. Filtra providers activos por ciudad y categoría usando `searchProviders({ intent })`
+3. Envía los resultados a Gemini para ranking semántico (score 0-100)
+4. Combina: `finalScore = 0.50 * aiRank + 0.20 * trustScore + 0.15 * availabilityScore + 0.15 * proximityScore`
+5. Ordena por `finalScore` descendente
+
+**Fallback:** Si `GEMINI_API_KEY` no está configurada, `extractIntent` y `rankProviders` usan algoritmos keyword-based sin costo de API.
+
+**Seguridad:** Los providers que no son públicamente listables (`DRAFT`, `INACTIVE`, `SUSPENDED`, `BANNED`) nunca aparecen en resultados de búsqueda. `TEMPORARILY_RESTRICTED` aparece con banner visible.
 
 ## Developer manual testing mode
 

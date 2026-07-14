@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { CalendarCheck, List, Map, MapPin, Search, SlidersHorizontal, Sparkles } from "lucide-react";
+import { CalendarCheck, List, Map, MapPin, Search, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import MvpProviderMap, { type SearchMapProvider } from "../components/map/MvpProviderMap";
 import { CATEGORY_OPTIONS, CREATIVE_CITIES, type CreativeCity, type PriceRange } from "../lib/mvp-data";
 import { useProvidersStore, type ProviderSearchResult } from "../stores/providers-store";
 import { useAuthStore } from "../stores/auth-store";
-import { AvailabilityBadge, EmptyState, PriceBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
+import { AvailabilityBadge, EmptyState, IntentChip, PriceBadge, SkeletonRows, TrustBadge, VerificationBadge } from "../components/mvp/Ui";
+import { useDebouncedValue } from "../hooks/use-debounced-value";
 import { isSanctionedStatus } from "../lib/identity";
 
 const availabilityLabel: Record<string, string> = {
@@ -25,11 +26,13 @@ const priceLabel: Record<string, string> = {
 const norm = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 export default function SearchPage() {
-  const { providers, searchProvidersAI, isLoading, aiUsed, aiIntent } = useProvidersStore();
+  const { providers, searchProvidersAI, isLoading, aiUsed, aiIntent, patchIntent } = useProvidersStore();
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState(params.get("query") || "");
+  const debouncedQuery = useDebouncedValue(query, 400);
+  const abortRef = useRef<AbortController | null>(null);
   const [city, setCity] = useState(params.get("city") || "");
   const [category, setCategory] = useState("");
   const [price, setPrice] = useState("");
@@ -42,12 +45,15 @@ export default function SearchPage() {
   const ownedProviderId = user?.providers?.[0]?.id || user?.providerProfileId;
 
   useEffect(() => {
-    const q = params.get("query") || "";
-    const c = params.get("city") || "";
-    if (q || c) {
-      searchProvidersAI({ query: q });
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const trimmed = debouncedQuery.trim();
+    if (trimmed.length >= 2) {
+      searchProvidersAI({ query: trimmed, signal: controller.signal });
+      setParams(trimmed ? { query: trimmed } : {}, { replace: true });
     }
-  }, []);
+  }, [debouncedQuery]);
 
   const results = useMemo(() => {
     const base = providers;
@@ -107,10 +113,12 @@ export default function SearchPage() {
 
   const handleSearch = (e: FormEvent) => {
     e.preventDefault();
-    const newParams: Record<string, string> = {};
-    if (query) newParams.query = query;
-    setParams(newParams);
-    searchProvidersAI({ query });
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const trimmed = query.trim();
+    setParams(trimmed ? { query: trimmed } : {}, { replace: true });
+    searchProvidersAI({ query: trimmed, signal: controller.signal });
   };
 
   return (
@@ -159,17 +167,35 @@ export default function SearchPage() {
 
         <main className={`results ${mobileView === "list" ? "mobile-active" : ""}`}>
           {aiIntent && (
-            <section className="intent-summary">
+            <section className="intent-summary" data-confidence={aiIntent.confidence}>
               <Sparkles />
               <div>
                 <strong>Entendimos tu búsqueda{aiUsed ? " con IA" : ""}</strong>
-                <span>
-                  {[
-                    aiIntent.category && `Categoría: ${aiIntent.category}`,
-                    aiIntent.city && `Ciudad: ${aiIntent.city}`,
-                    aiIntent.maxPriceNIO && `Presupuesto: hasta C$${aiIntent.maxPriceNIO.toLocaleString()}`,
-                    aiIntent.urgency === "alta" && "Urgencia: alta",
-                  ].filter(Boolean).join(" · ")}
+                <span className="badges">
+                  {aiIntent.category && (
+                    <IntentChip
+                      label={`Categoría: ${aiIntent.category}`}
+                      onRemove={() => patchIntent({ category: null })}
+                    />
+                  )}
+                  {aiIntent.city && (
+                    <IntentChip
+                      label={`Ciudad: ${aiIntent.city}`}
+                      onRemove={() => patchIntent({ city: null })}
+                    />
+                  )}
+                  {aiIntent.maxPriceNIO && (
+                    <IntentChip
+                      label={`Presupuesto: hasta C$${aiIntent.maxPriceNIO.toLocaleString()}`}
+                      onRemove={() => patchIntent({ maxPriceNIO: null })}
+                    />
+                  )}
+                  {aiIntent.urgency && (
+                    <IntentChip
+                      label={`Urgencia: ${aiIntent.urgency}`}
+                      onRemove={() => patchIntent({ urgency: null })}
+                    />
+                  )}
                 </span>
               </div>
             </section>

@@ -8,6 +8,8 @@ import { extractIntent } from "./src/lib/ai/extract-intent";
 import { rankProviders } from "./src/lib/ai/rank-providers";
 import { generateQuoteDraft } from "./src/lib/ai/quote-draft";
 import { generateEnhancedBio } from "./src/lib/ai/enhance-bio";
+import { cityToEnum, normalizeCity } from "./src/lib/ai/category-mapping";
+import { classifyGeminiError } from "./src/lib/ai/classify-error";
 import {
   quoteDraftRequestSchema,
   quoteRequestSchema,
@@ -68,27 +70,7 @@ import {
   updateThread,
 } from "./src/lib/quotes-service";
 
-const cityToEnum: Record<string, LegacyCity> = {
-  "managua": LegacyCity.MANAGUA,
-  "leon": LegacyCity.LEON,
-  "león": LegacyCity.LEON,
-  "granada": LegacyCity.GRANADA,
-  "masaya": LegacyCity.MASAYA,
-  "esteli": LegacyCity.ESTELI,
-  "estelí": LegacyCity.ESTELI,
-  "matagalpa": LegacyCity.MATAGALPA,
-  "bluefields": LegacyCity.BLUEFIELDS,
-  "juigalpa": LegacyCity.JUIGALPA,
-  "nagarote": LegacyCity.NAGAROTE,
-  "san juan de oriente": LegacyCity.SAN_JUAN_DE_ORIENTE,
-};
 
-function normalizeCity(value: unknown): LegacyCity | undefined {
-  if (typeof value !== "string" || !value.trim()) return undefined;
-  const raw = value.trim();
-  const enumValue = cityToEnum[raw.toLowerCase()] ?? raw.toUpperCase().replace(/\s+/g, "_");
-  return Object.values(LegacyCity).includes(enumValue as LegacyCity) ? enumValue as LegacyCity : undefined;
-}
 
 function normalizeAvailability(value: unknown): Availability {
   return Object.values(Availability).includes(value as Availability) ? value as Availability : Availability.DISPONIBLE;
@@ -739,7 +721,21 @@ async function startServer() {
       res.json({ success: true, intent, usedAi, data: ranked });
 
     } catch (error) {
-      console.error("AI search error:", error);
+      const c = classifyGeminiError(error);
+      if (c.kind === "rate_limit") {
+        console.warn("[ai-search] Rate limit de Gemini (429)", { retryAfterMs: c.retryAfterMs });
+        if (c.retryAfterMs) res.setHeader("Retry-After", String(Math.ceil(c.retryAfterMs / 1000)));
+        return res.status(503).json({ success: false, error: "Demasiadas búsquedas en este momento. Intentalo en unos segundos.", retry: true });
+      }
+      if (c.kind === "unavailable") {
+        console.info("[ai-search] Gemini no disponible (503/5xx)");
+        return res.status(503).json({ success: false, error: "El servicio de IA no está disponible. Probá en un momento.", retry: true });
+      }
+      if (c.kind === "aborted") {
+        console.warn("[ai-search] Búsqueda abortada (timeout/usuario)");
+        return res.status(499).json({ success: false, error: "Búsqueda cancelada", retry: false });
+      }
+      console.error("[ai-search] Error inesperado:", error);
       res.status(500).json({ success: false, error: "Error en búsqueda IA" });
     }
   });

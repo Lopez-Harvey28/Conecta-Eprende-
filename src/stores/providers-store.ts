@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { seedOffers, seedProviders, seedReviews } from "../lib/mvp-data";
+import type { SearchIntent } from "../lib/ai/extract-intent";
 
 export interface ProviderSearchResult {
   id: string;
@@ -43,12 +44,13 @@ interface ProvidersState {
   isLoading: boolean;
   error: string | null;
   aiUsed: boolean;
-  aiIntent: { category: string | null; city: string | null; urgency: string | null; maxPriceNIO: number | null } | null;
+  aiIntent: SearchIntent | null;
 
   searchProviders: (params: { q?: string; city?: string }) => Promise<void>;
-  searchProvidersAI: (params: { query: string }) => Promise<void>;
+  searchProvidersAI: (params: { query: string; signal?: AbortSignal }) => Promise<void>;
   getProvider: (idOrSlug: string) => Promise<FullProvider | null>;
   clearCurrentProvider: () => void;
+  patchIntent: (patch: Partial<Pick<SearchIntent, "category" | "city" | "maxPriceNIO" | "urgency">>) => void;
 }
 
 function getLocalProviderFallback(idOrSlug: string): FullProvider | null {
@@ -154,7 +156,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
     }
   },
 
-  searchProvidersAI: async ({ query }) => {
+  searchProvidersAI: async ({ query, signal }) => {
     set({ isLoading: true, error: null });
     try {
       const res = await fetch("/api/providers/ai-search", {
@@ -162,6 +164,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
         credentials: "include",
+        signal,
       });
 
       const data = await res.json();
@@ -177,6 +180,7 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         aiIntent: data.intent ?? null,
       });
     } catch (error) {
+      if ((error as Error).name === "AbortError") return;
       console.error("searchProvidersAI error:", error);
       set({ error: (error as Error).message, isLoading: false });
     }
@@ -208,4 +212,13 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
   },
 
   clearCurrentProvider: () => set({ currentProvider: null }),
+
+  patchIntent: (patch) => {
+    const current = get().aiIntent;
+    if (!current) return;
+    const next = { ...current, ...patch };
+    const count = [next.category, next.city, next.maxPriceNIO != null, next.urgency].filter(Boolean).length;
+    next.confidence = count >= 3 ? "alta" : count >= 2 ? "media" : "baja";
+    set({ aiIntent: next });
+  },
 }));

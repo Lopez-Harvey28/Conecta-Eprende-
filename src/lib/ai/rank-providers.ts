@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { classifyGeminiError } from "./classify-error";
 
 let ai: GoogleGenAI | null = null;
 
@@ -130,10 +131,15 @@ Responde SOLO con el JSON de scores.`;
       controller?.abort();
     }
   } catch (error) {
-    if ((error as Error).name === "AbortError" || (error as Error).message?.includes("abort")) {
-      console.warn("Gemini ranking timed out, using keyword fallback");
+    const c = classifyGeminiError(error);
+    if (c.kind === "aborted") {
+      console.warn("[rank-providers] Timeout, usando fallback keyword");
+    } else if (c.kind === "rate_limit") {
+      console.warn("[rank-providers] Rate limit (429) de Gemini, usando fallback", { retryAfterMs: c.retryAfterMs });
+    } else if (c.kind === "unavailable") {
+      console.info("[rank-providers] Gemini no disponible (503/5xx), degradando silenciosamente");
     } else {
-      console.error("Gemini ranking failed, falling back to keyword scoring", error);
+      console.error("[rank-providers] Error inesperado de Gemini, usando fallback", error);
     }
     return { scores: basicRankProviders(query, providers), usedAi: false };
   }

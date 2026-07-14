@@ -137,6 +137,12 @@ body,.app-shell,.app-content{background:var(--neutral)}
 .badge,.status,.content-section,.form-panel,.account-summary,.settings-list section,.request-list,.provider-result,.profile-sidebar section,.trust-explainer section,.report-table article{border-color:var(--secondary)}
 .badge-trust,.intent-summary,.request-icon,.message.provider{background:rgba(0,64,128,.08);color:var(--primary);border-color:rgba(0,64,128,.22)}
 .progress span,.timeline>div.done{background:var(--tertiary);color:var(--tertiary)}
+.intent-chip{background:var(--soft);color:var(--muted);border:1px solid var(--line);cursor:default;font-size:.72rem}
+.intent-chip .intent-chip-close{border:0;background:transparent;padding:0;display:inline-flex;align-items:center;color:inherit;opacity:.45;cursor:pointer}
+.intent-chip .intent-chip-close:hover{opacity:1}
+.intent-summary[data-confidence="alta"]{border-color:oklch(78% .15 145);background:oklch(94% .025 145)}
+.intent-summary[data-confidence="media"]{border-color:oklch(80% .1 75);background:oklch(95% .025 75)}
+.intent-summary[data-confidence="baja"]{border-color:var(--line);background:var(--soft)}
 .auth-link{display:inline-flex;align-items:center;gap:8px;color:var(--neutral);border:1px solid var(--secondary);border-radius:10px;padding:9px 12px;font-weight:750}
 .auth-link:hover{background:var(--tertiary)}
 .nav-unread{display:inline-grid;place-items:center;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--tertiary);color:var(--neutral);font-size:.68rem}

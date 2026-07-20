@@ -72,7 +72,7 @@ Reglas:
 - maxPriceNIO: si el usuario dice "5000" o "hasta 5000" sin moneda, asume córdobas (NIO).
 - urgency: "alta" si menciona urgencia/emergencia/ya/hoy; "media" si dice esta semana/pronto; null si no indica nada.
 - keywords: 0-5 términos descriptivos relevantes (sin stopwords: en, de, para, por, con, y, o, el, la, un, una, mi, mis, necesito, busco, quiero).
-- category y city: null si el usuario no spesifikó ninguna, NO uses un string vacío.
+- category y city: null si el usuario no especifica ninguna, NO uses un string vacío.
 
 Ejemplos:
 Query: "urgente plomería hasta 5000" → {"category": "Plomería", "city": null, "maxPriceNIO": 5000, "urgency": "alta", "keywords": []}

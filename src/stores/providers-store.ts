@@ -180,7 +180,10 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         aiIntent: data.intent ?? null,
       });
     } catch (error) {
-      if ((error as Error).name === "AbortError") return;
+      if ((error as Error).name === "AbortError") {
+        set({ isLoading: false });
+        return;
+      }
       console.error("searchProvidersAI error:", error);
       set({ error: (error as Error).message, isLoading: false });
     }

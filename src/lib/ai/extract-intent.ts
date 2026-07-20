@@ -139,7 +139,7 @@ function basicExtractIntent(query: string): SearchIntent {
   ]);
   const keywords = normalized
     .split(/[^\p{L}\p{N}]+/u)
-    .filter(w => w.length > 2 && !stopWords.has(w) && ![...matchedTokens].some(t => normalized.includes(t)));
+    .filter(w => w.length > 2 && !stopWords.has(w) && ![...matchedTokens].some(t => t === w));
 
   const maxPriceNIO = /hasta\s*(\d+)/.test(query)
     ? parseInt(/hasta\s*(\d+)/.exec(query)![1], 10)

@@ -26,7 +26,7 @@ const priceLabel: Record<string, string> = {
 const norm = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
 
 export default function SearchPage() {
-  const { providers, searchProvidersAI, isLoading, aiUsed, aiIntent, patchIntent } = useProvidersStore();
+  const { providers, searchProviders, searchProvidersAI, isLoading, aiUsed, aiIntent, patchIntent } = useProvidersStore();
   const { user } = useAuthStore();
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -52,8 +52,10 @@ export default function SearchPage() {
     if (trimmed.length >= 2) {
       searchProvidersAI({ query: trimmed, signal: controller.signal });
       setParams(trimmed ? { query: trimmed } : {}, { replace: true });
+    } else {
+      searchProviders({ q: "", city });
     }
-  }, [debouncedQuery]);
+  }, [debouncedQuery, city]);
 
   const results = useMemo(() => {
     const base = providers;

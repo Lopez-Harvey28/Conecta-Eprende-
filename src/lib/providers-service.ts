@@ -1,5 +1,72 @@
 import { prisma } from "./db";
-import { LegacyCity } from "@prisma/client";
+import { LegacyCity, type ProviderStatus } from "@prisma/client";
+import type { SearchIntent } from "./ai/extract-intent";
+
+export const PROVIDER_STATUSES: ProviderStatus[] = [
+  "DRAFT",
+  "ACTIVE",
+  "INACTIVE",
+  "TEMPORARILY_RESTRICTED",
+  "SUSPENDED",
+  "BANNED",
+];
+
+export const PUBLICLY_VISIBLE_STATUSES: ProviderStatus[] = [
+  "ACTIVE",
+  "TEMPORARILY_RESTRICTED",
+];
+
+export const QUOTE_RECEIVING_STATUSES: ProviderStatus[] = [
+  "ACTIVE",
+  "TEMPORARILY_RESTRICTED",
+];
+
+export const VALID_TRANSITIONS: Record<ProviderStatus, ProviderStatus[]> = {
+  DRAFT: ["ACTIVE", "INACTIVE"],
+  ACTIVE: ["INACTIVE", "TEMPORARILY_RESTRICTED", "SUSPENDED", "BANNED"],
+  INACTIVE: ["ACTIVE", "TEMPORARILY_RESTRICTED", "SUSPENDED", "BANNED"],
+  TEMPORARILY_RESTRICTED: ["ACTIVE", "INACTIVE", "SUSPENDED", "BANNED"],
+  SUSPENDED: ["ACTIVE", "INACTIVE", "BANNED"],
+  BANNED: [],
+};
+
+export function isPubliclyVisible(status: ProviderStatus | string | null | undefined): boolean {
+  return PUBLICLY_VISIBLE_STATUSES.includes(status as ProviderStatus);
+}
+
+export function canReceiveQuotes(status: ProviderStatus | string | null | undefined): boolean {
+  return QUOTE_RECEIVING_STATUSES.includes(status as ProviderStatus);
+}
+
+export function canTransition(from: ProviderStatus, to: ProviderStatus): boolean {
+  if (from === to) return true;
+  return VALID_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+export function assertCanTransition(from: ProviderStatus, to: ProviderStatus): void {
+  if (!canTransition(from, to)) {
+    throw new Error(`INVALID_TRANSITION:${from}:${to}`);
+  }
+}
+
+export function isOwnerPreviewable(
+  status: ProviderStatus | string | null | undefined,
+): boolean {
+  return !isPubliclyVisible(status);
+}
+
+export function getProviderStatusLabel(status: ProviderStatus | string | null | undefined): string {
+  const map: Record<ProviderStatus, string> = {
+    DRAFT: "Borrador",
+    ACTIVE: "Activo",
+    INACTIVE: "Inactivo",
+    TEMPORARILY_RESTRICTED: "Restringido temporalmente",
+    SUSPENDED: "Suspendido",
+    BANNED: "Baneado",
+  };
+  return map[status as ProviderStatus] ?? "Activo";
+}
+
 
 export interface ProviderSearchResult {
   id: string;
@@ -12,7 +79,7 @@ export interface ProviderSearchResult {
   shortDescription: string | null;
   priceRange: string | null;
   availability: string;
-  status: string;
+  status: ProviderStatus;
   statusReason: string | null;
   suspendedUntil: Date | null;
   verified: boolean;
@@ -51,10 +118,14 @@ function categoryNamesFromLinks(categoryLinks?: Array<{ category: { name: string
 export async function searchProviders(params: {
   q?: string;
   city?: string;
+  intent?: SearchIntent;
+  includeStatuses?: ProviderStatus[];
 }): Promise<ProviderSearchResult[]> {
-  const { q, city } = params;
+  const { q, city, intent } = params;
 
   let where: any = {};
+
+  where.status = { in: params.includeStatuses ?? PUBLICLY_VISIBLE_STATUSES };
 
   if (city) {
     where.city = city.toUpperCase();
@@ -137,11 +208,43 @@ export async function searchProviders(params: {
       const providerText = (
         p.displayName + " " + p.category + " " + (p.mainCategory || "")
       ).toLowerCase();
-      const providerMatch = words.some((w) => providerText.includes(w));
-      if (providerMatch) return true;
-
-      return false;
+      return words.some((w) => providerText.includes(w));
     });
+  }
+
+  if (intent) {
+    const norm = (s: string) =>
+      s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+    if (intent.category) {
+      const catNorm = norm(intent.category);
+      results = results.filter((p) =>
+        norm(p.category).includes(catNorm) ||
+        (p.mainCategory && norm(p.mainCategory).includes(catNorm))
+      );
+    }
+
+    if (intent.keywords.length > 0) {
+      const kwNorm = intent.keywords.map(norm);
+      results = results.filter((p) => {
+        const providerText = norm(
+          p.displayName + " " + p.category + " " + (p.mainCategory || "") + " " + (p.shortDescription || "")
+        );
+        return kwNorm.some((kw) => providerText.includes(kw));
+      });
+    }
+
+    if (intent.maxPriceNIO != null) {
+      const priceRangeMap: Record<string, number> = { LOW: 500, MEDIUM: 3000, HIGH: 15000 };
+      const maxPrice = intent.maxPriceNIO;
+      if (maxPrice < 500) {
+        results = results.filter((p) => p.priceRange === "LOW" || !p.priceRange);
+      } else if (maxPrice < 3000) {
+        results = results.filter((p) => p.priceRange !== "HIGH");
+      } else {
+        // No filter — all ranges are within budget
+      }
+    }
   }
 
   return results;
@@ -250,8 +353,9 @@ export async function updateProvider(
   });
 }
 
-export async function getProviderMapData(city?: string): Promise<Array<{ id: string; displayName: string; lat: number; lng: number; category: string; availability: string; verified: boolean; trustScore: number; shortDescription: string | null }>> {
+export async function getProviderMapData(city?: string): Promise<Array<{ id: string; displayName: string; lat: number; lng: number; category: string; availability: string; status: ProviderStatus; verified: boolean; trustScore: number; shortDescription: string | null }>> {
   let where: any = {};
+  where.status = { in: PUBLICLY_VISIBLE_STATUSES };
   if (city) {
     where.city = city.toUpperCase();
   }

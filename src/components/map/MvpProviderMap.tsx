@@ -12,6 +12,7 @@ import {
   X,
 } from "lucide-react";
 import "leaflet/dist/leaflet.css";
+import { isPubliclyListable, isSanctionedStatus } from "../../lib/identity";
 
 export interface SearchMapProvider {
   id: string;
@@ -224,7 +225,10 @@ export default function MvpProviderMap({
   onShowInList: (id: string) => void;
 }) {
   const [tileState, setTileState] = useState<"loading" | "ready" | "error">("loading");
-  const validProviders = useMemo(() => providers.filter(isInsideNicaragua), [providers]);
+  const validProviders = useMemo(
+    () => providers.filter(p => isInsideNicaragua(p) && isPubliclyListable(p.status)),
+    [providers],
+  );
   const selectedProvider = useMemo(
     () => validProviders.find(provider => provider.id === selectedId) || null,
     [validProviders, selectedId],
@@ -319,9 +323,13 @@ export default function MvpProviderMap({
               <Link className="button secondary" to={`/providers/${selectedProvider.id}`}>
                 Ver perfil <ArrowRight />
               </Link>
-              {selectedProvider.status === "SUSPENDED" || selectedProvider.status === "BANNED" ? (
+              {isSanctionedStatus(selectedProvider.status) ? (
                 <span className="button secondary disabled">
-                  {selectedProvider.status === "BANNED" ? "No recibe solicitudes" : "Suspendido temporalmente"}
+                  {selectedProvider.status === "BANNED" ? "Proveedor baneado" : "Proveedor suspendido"}
+                </span>
+              ) : selectedProvider.status === "TEMPORARILY_RESTRICTED" ? (
+                <span className="button secondary disabled">
+                  Restringido temporalmente
                 </span>
               ) : selectedProvider.isOwnProfile ? (
                 <Link className="button primary" to="/me/profile/edit">

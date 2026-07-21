@@ -9,6 +9,7 @@ import { useAuthStore } from "../stores/auth-store";
 import { useProvidersStore } from "../stores/providers-store";
 import { EmptyState, PageHeader, TrustBadge } from "../components/mvp/Ui";
 import { useEffect } from "react";
+import { canReceiveRequests, isLifecycleBlockingStatus, getProviderStatusBanner } from "../lib/identity";
 
 const typeLabel: Record<string, string> = {
   PRODUCTO_FINAL: "Producto",
@@ -34,6 +35,11 @@ export function ManageOffersPage() {
 
   const providerId = user?.providers?.[0]?.id;
   const catalogItems = currentProvider?.catalogItems || [];
+  const providerStatus = currentProvider?.provider?.status || "ACTIVE";
+  // Un proveedor sancionado o inactivo no puede mutar su catálogo.
+  // DRAFT puede editar libremente (está construyendo su perfil público).
+  const catalogLocked = providerStatus === "SUSPENDED" || providerStatus === "BANNED" || providerStatus === "INACTIVE";
+  const lockBanner = getProviderStatusBanner(providerStatus);
   const isLoading = false;
 
   useEffect(() => {
@@ -93,11 +99,22 @@ export function ManageOffersPage() {
         title="Productos y servicios"
         description="Administrá ofertas concretas para que los clientes sepan qué pueden solicitar."
         actions={
-          <Link className="button primary" to="/me/products/new">
+          <Link className={`button primary${catalogLocked ? " disabled" : ""}`} to={catalogLocked ? "#" : "/me/products/new"} aria-disabled={catalogLocked}>
             <Plus /> Agregar producto o servicio
           </Link>
         }
       />
+      {catalogLocked && lockBanner && (
+        <section className={`provider-status-banner ${providerStatus.toLowerCase()} tone-${lockBanner.tone}`}>
+          <h2>{lockBanner.heading}</h2>
+          <p>
+            {lockBanner.body}
+            {currentProvider?.provider?.statusReason ? ` Razón: ${currentProvider.provider.statusReason}` : ""}
+            {currentProvider?.provider?.suspendedUntil ? ` Hasta: ${new Date(currentProvider.provider.suspendedUntil).toLocaleDateString("es-NI")}.` : ""}
+          </p>
+          <p className="form-note">Mientras dure esta condición no podés agregar, editar ni eliminar ofertas del catálogo.</p>
+        </section>
+      )}
       <div className="offer-filters">
         {[
           ["ALL", "Todos"],
@@ -132,7 +149,7 @@ export function ManageOffersPage() {
                 </small>
               </div>
               <div className="offer-manager-actions">
-                <button onClick={() => handleToggleStatus(item)}>
+                <button onClick={() => handleToggleStatus(item)} disabled={catalogLocked}>
                   {item.availabilityStatus === "DISPONIBLE" ? (
                     <ToggleRight />
                   ) : (
@@ -143,10 +160,10 @@ export function ManageOffersPage() {
                 <Link to={`/providers/${item.providerId}/products/${item.id}`}>
                   <Eye /> Vista pública
                 </Link>
-                <Link to={`/me/products/${item.id}/edit`}>
+                <Link to={catalogLocked ? "#" : `/me/products/${item.id}/edit`} aria-disabled={catalogLocked} className={catalogLocked ? "disabled" : ""}>
                   <Edit3 /> Editar
                 </Link>
-                <button className="danger" onClick={() => handleArchive(item.id)}>
+                <button className="danger" onClick={() => handleArchive(item.id)} disabled={catalogLocked}>
                   <Archive /> Eliminar
                 </button>
               </div>
@@ -170,6 +187,10 @@ export function OfferEditorPage() {
 
   const providerId = user?.providers?.[0]?.id;
   const catalogItems = currentProvider?.catalogItems || [];
+  const providerStatus = currentProvider?.provider?.status || "ACTIVE";
+  // Un proveedor sancionado o inactivo no puede mutar su catálogo.
+  const catalogLocked = providerStatus === "SUSPENDED" || providerStatus === "BANNED" || providerStatus === "INACTIVE";
+  const lockBanner = getProviderStatusBanner(providerStatus);
   const existing = productId ? catalogItems.find((item: any) => item.id === productId) : null;
 
   useEffect(() => {
@@ -405,7 +426,7 @@ export function OfferDetailPage() {
   const photos = currentProvider?.photos || [];
   const portfolioImages = photos.map((p: any) => p.imageUrl).filter(Boolean);
   const isOwnOffer = (user?.providers?.[0]?.id || user?.providerProfileId) === provider.id;
-  const isRestrictedProvider = provider.status === "SUSPENDED" || provider.status === "BANNED";
+  const blockedFromQuotes = isLifecycleBlockingStatus(provider.status);
 
   const priceDisplay = () => {
     if (offer.priceMin && offer.priceMax) {
@@ -420,6 +441,22 @@ export function OfferDetailPage() {
       <Link className="back-link" to={`/providers/${provider.id}`}>
         <ArrowLeft /> Perfil de {provider.displayName}
       </Link>
+      {(() => {
+        const banner = getProviderStatusBanner(provider.status);
+        if (!banner) return null;
+        const canStillRequest = canReceiveRequests(provider.status);
+        return (
+          <section className={`provider-status-banner ${String(provider.status).toLowerCase()} tone-${banner.tone}`}>
+            <h2>{banner.heading}</h2>
+            <p>
+              {banner.body}
+              {provider.statusReason ? ` Razón: ${provider.statusReason}` : ""}
+              {provider.suspendedUntil ? ` Hasta: ${new Date(provider.suspendedUntil).toLocaleDateString("es-NI")}.` : ""}
+            </p>
+            {canStillRequest && <p className="form-note">Aun con restricciones, este proveedor puede recibir nuevas solicitudes.</p>}
+          </section>
+        );
+      })()}
       <div className="offer-detail">
         <img
           src={offer.mainImageUrl || portfolioImages[0] || ""}
@@ -453,9 +490,9 @@ export function OfferDetailPage() {
             <TrustBadge score={provider.trustScore?.finalScore ?? 0} />
           </section>
           <div className="card-actions">
-            {isRestrictedProvider ? (
+            {blockedFromQuotes ? (
               <span className="button secondary disabled">
-                {provider.status === "BANNED" ? "Proveedor baneado" : "Proveedor suspendido"}
+                {getProviderStatusBanner(provider.status)?.heading || "No disponible por estado del proveedor"}
               </span>
             ) : isOwnOffer ? (
               <Link className="button primary" to={`/me/products/${offer.id}/edit`}>

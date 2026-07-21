@@ -9,4 +9,5 @@ export const profileApi = {
   getMyProviderProfile:()=>apiRequest<ProviderProfile>("/api/providers/me"),
   createProviderProfile:(data:Partial<ProviderProfile>)=>apiRequest<ProviderProfile>("/api/providers",{method:"POST",body:JSON.stringify(data)}),
   updateProviderProfile:(providerProfileId:string,data:Partial<ProviderProfile>)=>apiRequest<{success:boolean;data:ProviderProfile}>(`/api/providers/${encodeURIComponent(providerProfileId)}`,{method:"PATCH",body:JSON.stringify(data)}),
+  publishProviderProfile:(providerProfileId:string)=>apiRequest<{success:boolean;data:ProviderProfile}>(`/api/providers/${encodeURIComponent(providerProfileId)}/publish`,{method:"POST"}),
 };

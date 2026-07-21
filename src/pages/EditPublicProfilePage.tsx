@@ -1,12 +1,14 @@
 import { useState, type FormEvent } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Save } from "lucide-react";
+import { ArrowLeft, Save, Globe, AlertCircle } from "lucide-react";
 import { CATEGORY_OPTIONS, CREATIVE_CITIES, priceLabel } from "../lib/mvp-data";
 import { useAuthStore } from "../stores/auth-store";
 import { useProvidersStore } from "../stores/providers-store";
 import { useMvpStore } from "../stores/mvp-store";
 import { PageHeader } from "../components/mvp/Ui";
 import { useEffect } from "react";
+import { getProviderStatusBanner } from "../lib/identity";
+import { profileApi } from "../api/profileApi";
 
 export default function EditPublicProfilePage() {
   const { user, fetchMe } = useAuthStore();
@@ -44,6 +46,31 @@ export default function EditPublicProfilePage() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  const isDraft = provider?.status === "DRAFT";
+  const activeCatalogCount = catalogItems.filter(item => item.availabilityStatus === "DISPONIBLE").length;
+  const readiness = {
+    tagline: form.tagline.trim().length >= 10,
+    description: form.description.trim().length >= 40,
+    catalog: activeCatalogCount >= 1,
+  };
+  const canPublish = readiness.tagline && readiness.description && readiness.catalog;
+
+  const handlePublish = async () => {
+    if (!provider?.id) return;
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      await profileApi.publishProviderProfile(provider.id);
+      await getProvider(provider.id);
+    } catch (err) {
+      setPublishError((err as Error).message);
+    } finally {
+      setPublishing(false);
+    }
+  };
 
   useEffect(() => {
     if (provider) {
@@ -272,6 +299,46 @@ export default function EditPublicProfilePage() {
           />
         </label>
         {errors.submit && <p className="field-error">{errors.submit}</p>}
+        {isDraft && (
+          <section className="publish-readiness-panel">
+            <div className="section-header">
+              <Globe size={20} />
+              <strong>Publicar perfil</strong>
+            </div>
+            {!canPublish ? (
+              <>
+                <p className="form-note">
+                  Tu perfil está en borrador y no es visible públicamente. Completá los siguientes requisitos para publicarlo:
+                </p>
+                <ul className="readiness-checklist">
+                  <li className={readiness.tagline ? "ok" : "missing"}>
+                    {readiness.tagline ? "✓" : "✗"} Frase corta (mínimo 10 caracteres)
+                  </li>
+                  <li className={readiness.description ? "ok" : "missing"}>
+                    {readiness.description ? "✓" : "✗"} Descripción detallada (mínimo 40 caracteres)
+                  </li>
+                  <li className={readiness.catalog ? "ok" : "missing"}>
+                    {readiness.catalog ? "✓" : "✗"} Al menos un catálogo activo
+                  </li>
+                </ul>
+              </>
+            ) : (
+              <p className="form-note">
+                Tu perfil está listo para publicarse y aparecer en búsquedas y mapas.
+              </p>
+            )}
+            {publishError && <p className="field-error" role="alert">{publishError}</p>}
+            <button
+              type="button"
+              className="button primary"
+              disabled={!canPublish || publishing}
+              onClick={handlePublish}
+            >
+              <Globe />
+              {publishing ? "Publicando..." : "Publicar perfil"}
+            </button>
+          </section>
+        )}
         <button className="button primary" disabled={isSaving}>
           <Save /> {isSaving ? "Guardando..." : "Guardar perfil público"}
         </button>

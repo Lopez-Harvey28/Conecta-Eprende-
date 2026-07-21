@@ -15,7 +15,7 @@ export interface AdminRiskReport {
     id: string;
     displayName: string;
     slug: string;
-    status: "ACTIVE" | "SUSPENDED" | "BANNED" | string;
+    status: "ACTIVE" | "DRAFT" | "INACTIVE" | "TEMPORARILY_RESTRICTED" | "SUSPENDED" | "BANNED" | string;
     statusReason: string | null;
     suspendedUntil: string | null;
     city: string;
@@ -68,6 +68,16 @@ export const adminApi = {
     adminRequest(`/api/admin/providers/${encodeURIComponent(providerId)}/suspend`, {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+  restrictProvider: (providerId: string, data: { reason: string; suspendedUntil?: string }) =>
+    adminRequest(`/api/admin/providers/${encodeURIComponent(providerId)}/restrict`, {
+      method: "POST",
+      body: JSON.stringify(data),
+    }),
+  inactivateProvider: (providerId: string, reason: string) =>
+    adminRequest(`/api/admin/providers/${encodeURIComponent(providerId)}/inactivate`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
     }),
   banProvider: (providerId: string, reason: string) =>
     adminRequest(`/api/admin/providers/${encodeURIComponent(providerId)}/ban`, {

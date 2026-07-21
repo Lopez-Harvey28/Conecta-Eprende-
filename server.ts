@@ -3,10 +3,13 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer, type ViteDevServer } from "vite";
 import cookieParser from "cookie-parser";
-import { Availability, LegacyCity, FormalizationStatus, Prisma } from "@prisma/client";
+import { Availability, LegacyCity, FormalizationStatus, Prisma, ProviderStatus } from "@prisma/client";
 import { extractIntent } from "./src/lib/ai/extract-intent";
+import { rankProviders } from "./src/lib/ai/rank-providers";
 import { generateQuoteDraft } from "./src/lib/ai/quote-draft";
 import { generateEnhancedBio } from "./src/lib/ai/enhance-bio";
+import { cityToEnum, normalizeCity } from "./src/lib/ai/category-mapping";
+import { classifyGeminiError } from "./src/lib/ai/classify-error";
 import {
   quoteDraftRequestSchema,
   quoteRequestSchema,
@@ -46,9 +49,16 @@ import {
   getFullProviderByIdOrSlug,
   updateProvider as updateProviderService,
   getProviderMapData,
+  canReceiveQuotes,
+  isPubliclyVisible,
+  assertCanTransition,
+  canTransition,
+  PROVIDER_STATUSES,
+  PUBLICLY_VISIBLE_STATUSES,
 } from "./src/lib/providers-service";
 import {
   searchCatalogItems,
+  getCatalogItem,
 } from "./src/lib/catalog-service";
 import {
   getThreadsByProvider,
@@ -60,27 +70,7 @@ import {
   updateThread,
 } from "./src/lib/quotes-service";
 
-const cityToEnum: Record<string, LegacyCity> = {
-  "managua": LegacyCity.MANAGUA,
-  "leon": LegacyCity.LEON,
-  "león": LegacyCity.LEON,
-  "granada": LegacyCity.GRANADA,
-  "masaya": LegacyCity.MASAYA,
-  "esteli": LegacyCity.ESTELI,
-  "estelí": LegacyCity.ESTELI,
-  "matagalpa": LegacyCity.MATAGALPA,
-  "bluefields": LegacyCity.BLUEFIELDS,
-  "juigalpa": LegacyCity.JUIGALPA,
-  "nagarote": LegacyCity.NAGAROTE,
-  "san juan de oriente": LegacyCity.SAN_JUAN_DE_ORIENTE,
-};
 
-function normalizeCity(value: unknown): LegacyCity | undefined {
-  if (typeof value !== "string" || !value.trim()) return undefined;
-  const raw = value.trim();
-  const enumValue = cityToEnum[raw.toLowerCase()] ?? raw.toUpperCase().replace(/\s+/g, "_");
-  return Object.values(LegacyCity).includes(enumValue as LegacyCity) ? enumValue as LegacyCity : undefined;
-}
 
 function normalizeAvailability(value: unknown): Availability {
   return Object.values(Availability).includes(value as Availability) ? value as Availability : Availability.DISPONIBLE;
@@ -181,7 +171,7 @@ async function startServer() {
     return { thread, role: null as "client" | "provider" | null };
   }
 
-  async function getUserSystemRoles(userId: string) {
+  async function getUserSystemRoles(userId: string): Promise<Set<string>> {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -697,29 +687,55 @@ async function startServer() {
 
       const intent = await extractIntent(query);
 
-      // First get all providers matching city if provided
-      let providers = await searchProviders({ city: intent.city || undefined });
+      const providers = await searchProviders({
+        city: intent.city || undefined,
+        intent,
+      });
 
-      if (intent.category) {
-        const cat = intent.category.toLowerCase();
-        // Filter by category in-memory (matches mainCategory or category)
-        providers = providers.filter(p => {
-          const providerCats = ((p.category || "") + " " + (p.mainCategory || "")).toLowerCase();
-          if (providerCats.includes(cat)) return true;
-          return false;
-        });
-      } else if (intent.keywords && intent.keywords.length > 0) {
-        const kws = intent.keywords.map(k => k.toLowerCase()).filter(Boolean);
-        providers = providers.filter(p => {
-          const haystack = ((p.displayName || "") + " " + (p.category || "") + " " + (p.mainCategory || "")).toLowerCase();
-          return kws.some(k => haystack.includes(k));
-        });
-      }
+      const { scores: aiScores, usedAi } = await rankProviders(query, providers);
 
-      res.json({ success: true, intent, data: providers });
+      const ranked = providers.map((p) => {
+        const aiScore = aiScores[p.id] ?? 0;
+        const trustScore = p.trustScore ?? 0;
+
+        const availabilityScore = p.availability === "DISPONIBLE" ? 100
+          : p.availability === "OCUPADO" ? 50
+            : p.availability === "BAJO_PEDIDO" ? 25 : 0;
+
+        const proximityScore = intent.city
+          ? p.city.toLowerCase().includes(intent.city.toLowerCase()) ? 100 : 30
+          : 70;
+
+        const finalScore = Math.round(
+          0.50 * aiScore +
+          0.20 * trustScore +
+          0.15 * availabilityScore +
+          0.15 * proximityScore
+        );
+
+        return { ...p, finalScore };
+      });
+
+      ranked.sort((a, b) => b.finalScore - a.finalScore);
+
+      res.json({ success: true, intent, usedAi, data: ranked });
 
     } catch (error) {
-      console.error("AI search error:", error);
+      const c = classifyGeminiError(error);
+      if (c.kind === "rate_limit") {
+        console.warn("[ai-search] Rate limit de Gemini (429)", { retryAfterMs: c.retryAfterMs });
+        if (c.retryAfterMs) res.setHeader("Retry-After", String(Math.ceil(c.retryAfterMs / 1000)));
+        return res.status(503).json({ success: false, error: "Demasiadas búsquedas en este momento. Intentalo en unos segundos.", retry: true });
+      }
+      if (c.kind === "unavailable") {
+        console.info("[ai-search] Gemini no disponible (503/5xx)");
+        return res.status(503).json({ success: false, error: "El servicio de IA no está disponible. Probá en un momento.", retry: true });
+      }
+      if (c.kind === "aborted") {
+        console.warn("[ai-search] Búsqueda abortada (timeout/usuario)");
+        return res.status(499).json({ success: false, error: "Búsqueda cancelada", retry: false });
+      }
+      console.error("[ai-search] Error inesperado:", error);
       res.status(500).json({ success: false, error: "Error en búsqueda IA" });
     }
   });
@@ -729,6 +745,20 @@ async function startServer() {
     try {
       const full = await getFullProviderByIdOrSlug(req.params.id);
       if (!full) return res.status(404).json({ success: false, message: "No encontrado" });
+
+      // Visibility gate: non-public statuses are only visible to owner or admin reviewers/super admins.
+      if (!isPubliclyVisible(full.provider.status)) {
+        const accessToken = req.cookies?.access_token;
+        const payload = accessToken ? verifyAccessToken(accessToken) : null;
+        const callerUserId = payload?.userId;
+        const callerRoles = callerUserId ? await getUserSystemRoles(callerUserId) : new Set<string>();
+        const isOwner = callerUserId && full.provider.userId === callerUserId;
+        const isModerator = callerRoles.has("ADMIN") || callerRoles.has("ADMIN_REVIEWER") || callerRoles.has("SUPER_ADMIN");
+        if (!isOwner && !isModerator) {
+          return res.status(404).json({ success: false, message: "Este proveedor no está disponible públicamente" });
+        }
+        return res.json({ success: true, data: full, preview: true });
+      }
 
       res.json({ success: true, data: full });
     } catch (error) {
@@ -834,12 +864,17 @@ async function startServer() {
         });
       }
 
-      if (provider.status === "SUSPENDED" || provider.status === "BANNED") {
+      if (!canReceiveQuotes(provider.status)) {
+        const statusMessages: Partial<Record<ProviderStatus, string>> = {
+          DRAFT: "Este proveedor está en borrador y no puede recibir solicitudes todavía.",
+          INACTIVE: "Este proveedor está inactivo y no puede recibir solicitudes.",
+          SUSPENDED: "Este proveedor está suspendido temporalmente y no puede recibir nuevas solicitudes.",
+          BANNED: "Este proveedor está baneado y no puede recibir nuevas solicitudes.",
+          ACTIVE: "",
+        };
         return res.status(403).json({
           success: false,
-          error: provider.status === "BANNED"
-            ? "Este proveedor está baneado y no puede recibir nuevas solicitudes."
-            : "Este proveedor está suspendido temporalmente y no puede recibir nuevas solicitudes.",
+          error: statusMessages[provider.status] || "Este proveedor no puede recibir solicitudes en este momento.",
         });
       }
 
@@ -1120,7 +1155,7 @@ async function startServer() {
   async function updateProviderModerationStatus(
     providerId: string,
     actorUserId: string,
-    status: "ACTIVE" | "SUSPENDED" | "BANNED",
+    status: ProviderStatus,
     reason: string,
     suspendedUntil?: string | null,
   ) {
@@ -1130,25 +1165,37 @@ async function startServer() {
     });
 
     if (!provider) throw new Error("PROVIDER_NOT_FOUND");
-    if (provider.status === "BANNED" && status === "SUSPENDED") throw new Error("INVALID_TRANSITION");
+    if (!canTransition(provider.status, status)) {
+      throw new Error(`INVALID_TRANSITION:${provider.status}:${status}`);
+    }
 
+    const usesSuspendedUntil = status === "SUSPENDED" || status === "TEMPORARILY_RESTRICTED";
     const updated = await prisma.provider.update({
       where: { id: providerId },
       data: {
         status,
         statusReason: status === "ACTIVE" ? null : reason,
-        suspendedUntil: status === "SUSPENDED" && suspendedUntil ? new Date(suspendedUntil) : null,
+        suspendedUntil: usesSuspendedUntil && suspendedUntil ? new Date(suspendedUntil) : null,
         statusUpdatedAt: new Date(),
         statusUpdatedById: actorUserId,
       },
     });
 
+    const actionByStatus: Record<ProviderStatus, string> = {
+      DRAFT: "PROVIDER_REVERTED_TO_DRAFT",
+      ACTIVE: "PROVIDER_REACTIVATED",
+      INACTIVE: "PROVIDER_INACTIVATED",
+      TEMPORARILY_RESTRICTED: "PROVIDER_RESTRICTED",
+      SUSPENDED: "PROVIDER_SUSPENDED",
+      BANNED: "PROVIDER_BANNED",
+    };
+
     await createModerationAuditLog({
       actorUserId,
-      action: status === "ACTIVE" ? "PROVIDER_REACTIVATED" : status === "SUSPENDED" ? "PROVIDER_SUSPENDED" : "PROVIDER_BANNED",
+      action: actionByStatus[status],
       targetType: "PROVIDER",
       targetId: providerId,
-      reason,
+      reason: reason || (status === "ACTIVE" ? "Reactivación sin razón registrada" : "Cambio de estado"),
       metadata: { previousStatus: provider.status, nextStatus: status, suspendedUntil: suspendedUntil || null },
     });
 
@@ -1164,8 +1211,9 @@ async function startServer() {
       const provider = await updateProviderModerationStatus(req.params.providerId, userId, "SUSPENDED", reason, suspendedUntil || null);
       res.json({ success: true, data: provider });
     } catch (error) {
-      if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
-      if ((error as Error).message === "INVALID_TRANSITION") return res.status(409).json({ success: false, error: "Un proveedor baneado no puede pasar a suspendido" });
+      const msg = (error as Error).message;
+      if (msg === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      if (msg.startsWith("INVALID_TRANSITION")) return res.status(409).json({ success: false, error: "No se puede suspender desde el estado actual del proveedor" });
       console.error("Suspend provider error:", error);
       res.status(500).json({ success: false, error: "Error al suspender proveedor" });
     }
@@ -1179,7 +1227,9 @@ async function startServer() {
       const provider = await updateProviderModerationStatus(req.params.providerId, userId, "BANNED", parsed.data.reason);
       res.json({ success: true, data: provider });
     } catch (error) {
-      if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      const msg = (error as Error).message;
+      if (msg === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      if (msg.startsWith("INVALID_TRANSITION")) return res.status(409).json({ success: false, error: "No se puede banear desde el estado actual del proveedor" });
       console.error("Ban provider error:", error);
       res.status(500).json({ success: false, error: "Error al banear proveedor" });
     }
@@ -1193,9 +1243,44 @@ async function startServer() {
       const provider = await updateProviderModerationStatus(req.params.providerId, userId, "ACTIVE", parsed.data.reason);
       res.json({ success: true, data: provider });
     } catch (error) {
-      if ((error as Error).message === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      const msg = (error as Error).message;
+      if (msg === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      if (msg.startsWith("INVALID_TRANSITION")) return res.status(409).json({ success: false, error: "No se puede reactivar desde el estado actual del proveedor" });
       console.error("Reactivate provider error:", error);
       res.status(500).json({ success: false, error: "Error al reactivar proveedor" });
+    }
+  });
+
+  app.post("/api/admin/providers/:providerId/restrict", authenticate, requireSuperAdmin, async (req, res) => {
+    try {
+      const parsed = providerSuspendSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "Los datos de restricción son inválidos", details: parsed.error.issues });
+      const { userId } = req.user;
+      const { reason, suspendedUntil } = parsed.data;
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "TEMPORARILY_RESTRICTED", reason, suspendedUntil || null);
+      res.json({ success: true, data: provider });
+    } catch (error) {
+      const msg = (error as Error).message;
+      if (msg === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      if (msg.startsWith("INVALID_TRANSITION")) return res.status(409).json({ success: false, error: "No se puede restringir desde el estado actual del proveedor" });
+      console.error("Restrict provider error:", error);
+      res.status(500).json({ success: false, error: "Error al restringir proveedor" });
+    }
+  });
+
+  app.post("/api/admin/providers/:providerId/inactivate", authenticate, requireAdminReviewerOrSuperAdmin, async (req, res) => {
+    try {
+      const parsed = providerModerationReasonSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ success: false, error: "La inactivación requiere una razón", details: parsed.error.issues });
+      const { userId } = req.user;
+      const provider = await updateProviderModerationStatus(req.params.providerId, userId, "INACTIVE", parsed.data.reason);
+      res.json({ success: true, data: provider });
+    } catch (error) {
+      const msg = (error as Error).message;
+      if (msg === "PROVIDER_NOT_FOUND") return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      if (msg.startsWith("INVALID_TRANSITION")) return res.status(409).json({ success: false, error: "No se puede inactivar desde el estado actual del proveedor" });
+      console.error("Inactivate provider error:", error);
+      res.status(500).json({ success: false, error: "Error al inactivar proveedor" });
     }
   });
 
@@ -1276,6 +1361,7 @@ async function startServer() {
           priceRange: input.priceRange || null,
           availability: normalizeAvailability(input.availability),
           formalizationStatus: normalizeFormalizationStatus(input.formalizationStatus),
+          status: "DRAFT",
           responseTimeHrs,
           metrics: {
             create: {
@@ -1298,6 +1384,61 @@ async function startServer() {
     } catch (e) {
       console.error("Create provider error:", e);
       res.status(500).json({ success: false, error: "Error al crear proveedor" });
+    }
+  });
+
+  // POST Publish (DRAFT -> ACTIVE) — owner only
+  app.post("/api/providers/:id/publish", authenticate, async (req, res) => {
+    try {
+      const providerId = req.params.id;
+      const { userId } = req.user;
+
+      const provider = await prisma.provider.findUnique({
+        where: { id: providerId },
+        select: {
+          id: true,
+          userId: true,
+          status: true,
+          shortDescription: true,
+          aboutDescription: true,
+          category: true,
+          catalogItems: { where: { availabilityStatus: "DISPONIBLE" }, select: { id: true }, take: 1 },
+        },
+      });
+
+      if (!provider) return res.status(404).json({ success: false, error: "Proveedor no encontrado" });
+      if (provider.userId !== userId) return res.status(403).json({ success: false, error: "Solo el dueño puede publicar este perfil" });
+      if (provider.status !== "DRAFT") return res.status(409).json({ success: false, error: "Solo los perfiles en borrador pueden publicarse" });
+
+      const missing: string[] = [];
+      if (!provider.shortDescription || provider.shortDescription.trim().length < 10) missing.push("una descripción corta");
+      if (!provider.aboutDescription || provider.aboutDescription.trim().length < 40) missing.push("una descripción detallada de al menos 40 caracteres");
+      if (provider.catalogItems.length === 0) missing.push("al menos un catálogo activo");
+      if (missing.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: `Falta para publicar: ${missing.join(", ")}.`,
+        });
+      }
+
+      const updated = await prisma.provider.update({
+        where: { id: providerId },
+        data: { status: "ACTIVE", statusReason: null, suspendedUntil: null, statusUpdatedAt: new Date(), statusUpdatedById: userId },
+      });
+
+      await createModerationAuditLog({
+        actorUserId: userId,
+        action: "PROVIDER_PUBLISHED",
+        targetType: "PROVIDER",
+        targetId: providerId,
+        reason: "Publicación del perfil por el dueño",
+        metadata: { previousStatus: "DRAFT", nextStatus: "ACTIVE" },
+      });
+
+      res.json({ success: true, data: updated });
+    } catch (error) {
+      console.error("Publish provider error:", error);
+      res.status(500).json({ success: false, error: "Error al publicar proveedor" });
     }
   });
 
@@ -1376,18 +1517,25 @@ async function startServer() {
   // GET Catalog Item by ID
   app.get("/api/catalog-items/:id", async (req, res) => {
     try {
-      const item = await prisma.catalogItem.findUnique({
-        where: { id: req.params.id },
-        include: {
-          cityRef: { include: { department: true } },
-          categoryLinks: { include: { category: true } },
-          metrics: true,
-          provider: { select: { id: true, displayName: true, city: true, cityRef: true, trustScore: true, metrics: true } },
-        },
-      });
+      const item = await getCatalogItem(req.params.id);
       if (!item) {
         return res.status(404).json({ success: false, error: "Item no encontrado" });
       }
+
+      // Visibility gate: items inherit their provider's visibility.
+      if (!isPubliclyVisible(item.provider?.status)) {
+        const accessToken = req.cookies?.access_token;
+        const payload = accessToken ? verifyAccessToken(accessToken) : null;
+        const callerUserId = payload?.userId;
+        const callerRoles = callerUserId ? await getUserSystemRoles(callerUserId) : new Set<string>();
+        const isOwner = callerUserId && item.provider?.userId === callerUserId;
+        const isModerator = callerRoles.has("ADMIN") || callerRoles.has("ADMIN_REVIEWER") || callerRoles.has("SUPER_ADMIN");
+        if (!isOwner && !isModerator) {
+          return res.status(404).json({ success: false, error: "Este catálogo no está disponible públicamente" });
+        }
+        return res.json({ success: true, data: item, preview: true });
+      }
+
       res.json({ success: true, data: item });
     } catch (e) {
       console.error("Get catalog item error:", e);

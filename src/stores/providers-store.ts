@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { seedOffers, seedProviders, seedReviews } from "../lib/mvp-data";
+import type { SearchIntent } from "../lib/ai/extract-intent";
 
 export interface ProviderSearchResult {
   id: string;
@@ -24,6 +25,7 @@ export interface ProviderSearchResult {
   photos: string[];
   lat: number | null;
   lng: number | null;
+  finalScore?: number;
 }
 
 export interface FullProvider {
@@ -41,10 +43,14 @@ interface ProvidersState {
   currentProvider: FullProvider | null;
   isLoading: boolean;
   error: string | null;
+  aiUsed: boolean;
+  aiIntent: SearchIntent | null;
 
   searchProviders: (params: { q?: string; city?: string }) => Promise<void>;
+  searchProvidersAI: (params: { query: string; signal?: AbortSignal }) => Promise<void>;
   getProvider: (idOrSlug: string) => Promise<FullProvider | null>;
   clearCurrentProvider: () => void;
+  patchIntent: (patch: Partial<Pick<SearchIntent, "category" | "city" | "maxPriceNIO" | "urgency">>) => void;
 }
 
 function getLocalProviderFallback(idOrSlug: string): FullProvider | null {
@@ -123,6 +129,8 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
   currentProvider: null,
   isLoading: false,
   error: null,
+  aiUsed: false,
+  aiIntent: null,
 
   searchProviders: async ({ q, city }) => {
     set({ isLoading: true, error: null });
@@ -141,9 +149,42 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
         throw new Error(data.error || "Error al buscar proveedores");
       }
 
-      set({ providers: data.data, isLoading: false });
+      set({ providers: data.data, isLoading: false, aiUsed: false, aiIntent: null });
     } catch (error) {
       console.error("searchProviders error:", error);
+      set({ error: (error as Error).message, isLoading: false });
+    }
+  },
+
+  searchProvidersAI: async ({ query, signal }) => {
+    set({ isLoading: true, error: null });
+    try {
+      const res = await fetch("/api/providers/ai-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query }),
+        credentials: "include",
+        signal,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || "Error en búsqueda IA");
+      }
+
+      set({
+        providers: data.data,
+        isLoading: false,
+        aiUsed: data.usedAi ?? true,
+        aiIntent: data.intent ?? null,
+      });
+    } catch (error) {
+      if ((error as Error).name === "AbortError") {
+        set({ isLoading: false });
+        return;
+      }
+      console.error("searchProvidersAI error:", error);
       set({ error: (error as Error).message, isLoading: false });
     }
   },
@@ -174,4 +215,13 @@ export const useProvidersStore = create<ProvidersState>((set, get) => ({
   },
 
   clearCurrentProvider: () => set({ currentProvider: null }),
+
+  patchIntent: (patch) => {
+    const current = get().aiIntent;
+    if (!current) return;
+    const next = { ...current, ...patch };
+    const count = [next.category, next.city, next.maxPriceNIO != null, next.urgency].filter(Boolean).length;
+    next.confidence = count >= 3 ? "alta" : count >= 2 ? "media" : "baja";
+    set({ aiIntent: next });
+  },
 }));

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Ban, CheckCircle2, Clock3, Flag, RotateCcw, ShieldAlert } from "lucide-react";
+import { AlertTriangle, Ban, CheckCircle2, Clock3, Flag, RotateCcw, ShieldAlert, AlertCircle } from "lucide-react";
 import { adminApi, type AdminRiskReport, type AdminRiskReportStatus, type ModerationAuditLog } from "../api/adminApi";
 import { EmptyState, PageHeader } from "../components/mvp/Ui";
 import { useAuthStore } from "../stores/auth-store";
@@ -91,11 +91,13 @@ export default function AdminReportsPage() {
     }
   }
 
-  async function moderateProvider(action: "suspend" | "ban" | "reactivate") {
+  async function moderateProvider(action: "suspend" | "restrict" | "inactivate" | "ban" | "reactivate") {
     if (!selected) return;
     setError(null);
     try {
       if (action === "suspend") await adminApi.suspendProvider(selected.provider.id, { reason, suspendedUntil: suspendedUntil || undefined });
+      if (action === "restrict") await adminApi.restrictProvider(selected.provider.id, { reason, suspendedUntil: suspendedUntil || undefined });
+      if (action === "inactivate") await adminApi.inactivateProvider(selected.provider.id, reason);
       if (action === "ban") await adminApi.banProvider(selected.provider.id, reason);
       if (action === "reactivate") await adminApi.reactivateProvider(selected.provider.id, reason);
       await adminApi.updateRiskReportStatus(selected.id, { status: "ACTION_TAKEN", reason: reason || "Acción de moderación aplicada" });
@@ -211,6 +213,15 @@ export default function AdminReportsPage() {
                 </div>
               </section>
 
+              {canReview && !isSuperAdmin && (
+                <section className="content-section">
+                  <h2>Acciones de revisión</h2>
+                  <div className="report-actions">
+                    <button className="button secondary" type="button" onClick={() => moderateProvider("inactivate")}><Clock3 /> Inactivar</button>
+                  </div>
+                </section>
+              )}
+
               {isSuperAdmin && (
                 <section className="content-section">
                   <h2>Acciones de super administración</h2>
@@ -225,6 +236,7 @@ export default function AdminReportsPage() {
                     </label>
                     <div className="report-actions">
                       <button className="button secondary"><AlertTriangle /> Suspender</button>
+                      <button className="button secondary" type="button" onClick={() => moderateProvider("restrict")}><AlertCircle /> Restringir</button>
                       <button className="button secondary" type="button" onClick={() => moderateProvider("reactivate")}><RotateCcw /> Reactivar</button>
                       <button className="button primary danger" type="button" onClick={() => moderateProvider("ban")}><Ban /> Banear</button>
                     </div>

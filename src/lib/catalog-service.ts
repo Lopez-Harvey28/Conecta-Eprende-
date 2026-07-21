@@ -1,4 +1,6 @@
 import { prisma } from "./db";
+import type { ProviderStatus } from "@prisma/client";
+import { PUBLICLY_VISIBLE_STATUSES } from "./providers-service";
 
 function mapCatalogItem(item: any) {
   return {
@@ -15,13 +17,19 @@ export async function searchCatalogItems(params: {
   q?: string;
   city?: string;
   providerId?: string;
+  includeStatuses?: ProviderStatus[];
 }): Promise<any[]> {
   const { q, city, providerId } = params;
+  const includeStatuses = params.includeStatuses ?? PUBLICLY_VISIBLE_STATUSES;
 
-  let where: any = {};
+  let where: any = {
+    provider: { status: { in: includeStatuses } },
+  };
 
   if (providerId) {
     where.providerId = providerId;
+    // When a specific provider is requested we keep the status filter so the
+    // caller does not silently get items from a non-public provider.
   }
 
   if (city) {
@@ -49,6 +57,7 @@ export async function searchCatalogItems(params: {
           id: true,
           displayName: true,
           slug: true,
+          status: true,
           verified: true,
           trustScore: { select: { finalScore: true } },
           metrics: { select: { trustScore: true } },
@@ -88,6 +97,8 @@ export async function getCatalogItem(id: string): Promise<any | null> {
           id: true,
           displayName: true,
           slug: true,
+          userId: true,
+          status: true,
           city: true,
           cityRef: true,
           verified: true,

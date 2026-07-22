@@ -91,6 +91,7 @@ interface TestContext {
   providerUserId: string;
   testProviderId: string;
   reportId: string | null;
+  openReports: any[];
 }
 
 async function buildContext(): Promise<TestContext> {
@@ -122,10 +123,9 @@ async function buildContext(): Promise<TestContext> {
     },
   });
 
-  // Buscar un risk report OPEN
+  // Obtener TODOS los risk reports OPEN de una vez
   const reportsRes = await apiRequest("GET", "/api/admin/risk-reports?status=OPEN", adminLogin.cookie);
   const openReports: any[] = reportsRes.body?.data ?? [];
-  const reportId = openReports[0]?.id ?? null;
 
   return {
     adminCookie: adminLogin.cookie,
@@ -133,19 +133,25 @@ async function buildContext(): Promise<TestContext> {
     providerCookie: provLogin.cookie,
     providerUserId: provLogin.userId,
     testProviderId: testProvider.id,
-    reportId,
+    reportId: openReports[0]?.id ?? null,
+    openReports,
   };
 }
 
 async function cleanup(providerId: string): Promise<void> {
   console.log("\n-> Cleanup");
   try {
-    await prisma.provider
-      .update({ where: { id: providerId }, data: { status: "INACTIVE" } })
-      .catch(() => {});
     await prisma.provider.deleteMany({ where: { slug: { startsWith: TEST_PREFIX } } });
   } catch (err) {
-    console.warn(`  Cleanup warning: ${(err as Error).message}`);
+    // FK constraint puede bloquear delete — fallback: marcar INACTIVE
+    try {
+      await prisma.provider.updateMany({
+        where: { slug: { startsWith: TEST_PREFIX } },
+        data: { status: "INACTIVE" },
+      });
+    } catch {
+      console.warn("  Cleanup warning: could not delete or inactivate test providers");
+    }
   }
   await prisma.$disconnect();
 }
@@ -153,59 +159,68 @@ async function cleanup(providerId: string): Promise<void> {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 async function runAll(ctx: TestContext): Promise<void> {
-  const { adminCookie, superCookie, providerCookie, providerUserId, testProviderId, reportId } = ctx;
+  const { adminCookie, superCookie, providerCookie, providerUserId, testProviderId, openReports } = ctx;
   const PROVIDER_ID = testProviderId;
 
-  // ADMIN_REVIEWER: puede listar, ver detalle, escalar, cerrar reports
+  // ── Batch skip si no hay OPEN reports ──────────────────────────────────────
+  const hasReports = openReports.length > 0;
+  const reportA = openReports[0]?.id ?? null;
+  const reportB = openReports[1]?.id ?? null; // segundo report para tests que consumen uno
+
+  if (!hasReports) {
+    skip("ADMIN_REVIEWER get report detail", "no OPEN reports in seed");
+    skip("ADMIN_REVIEWER dismiss report", "no OPEN reports in seed");
+    skip("ADMIN_REVIEWER escalate report", "no OPEN reports in seed");
+    skip("ADMIN_REVIEWER cannot set ACTION_TAKEN", "no OPEN reports in seed");
+    skip("Audit log entry for REPORT_ESCALATED", "no OPEN reports in seed");
+  }
+
+  // ── ADMIN_REVIEWER: list / get / update / escalate ─────────────────────────
+
   test("ADMIN_REVIEWER list risk-reports -> 200", async () => {
     const r = await apiRequest("GET", "/api/admin/risk-reports", adminCookie);
     assert.equal(r.status, 200);
     assert.ok(Array.isArray(r.body?.data));
   });
 
-  if (reportId) {
+  if (hasReports && reportA) {
     test("ADMIN_REVIEWER get report detail -> 200", async () => {
-      const r = await apiRequest("GET", `/api/admin/risk-reports/${reportId}`, adminCookie);
+      const r = await apiRequest("GET", `/api/admin/risk-reports/${reportA}`, adminCookie);
       assert.equal(r.status, 200);
-      assert.equal(r.body?.data?.id, reportId);
+      assert.equal(r.body?.data?.id, reportA);
     });
 
     test("ADMIN_REVIEWER dismiss report -> 200", async () => {
-      const r = await apiRequest("PATCH", `/api/admin/risk-reports/${reportId}/status`, adminCookie, {
+      const r = await apiRequest("PATCH", `/api/admin/risk-reports/${reportA}/status`, adminCookie, {
         status: "DISMISSED",
         reason: "Test dismiss by ADMIN_REVIEWER",
       });
       assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
     });
 
-    test("ADMIN_REVIEWER escalate report -> 200", async () => {
-      // Buscar otro report OPEN ya que el anterior quedó DISMISSED
-      const list = await apiRequest("GET", "/api/admin/risk-reports?status=OPEN", adminCookie);
-      const next: any[] = list.body?.data ?? [];
-      if (!next[0]?.id) { skip("ADMIN_REVIEWER escalate", "no OPEN reports"); return; }
-      const r = await apiRequest("POST", `/api/admin/risk-reports/${next[0].id}/escalate`, adminCookie, {
-        reviewerNotes: "Escalate test note",
-      });
-      assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
-    });
-
     test("ADMIN_REVIEWER cannot set ACTION_TAKEN -> 403", async () => {
-      // Buscar un report OPEN para esta prueba
+      // Buscar otro report OPEN que no haya sido consumido por dismiss
       const list = await apiRequest("GET", "/api/admin/risk-reports?status=OPEN", adminCookie);
       const candidates: any[] = list.body?.data ?? [];
       const targetId = candidates[0]?.id;
-      if (!targetId) { skip("ADMIN_REVIEWER cannot set ACTION_TAKEN", "no OPEN reports"); return; }
+      assert.ok(targetId, "Need an OPEN report for this test");
       const r = await apiRequest("PATCH", `/api/admin/risk-reports/${targetId}/status`, adminCookie, {
         status: "ACTION_TAKEN",
         reason: "Test ACTION_TAKEN by ADMIN_REVIEWER (should be 403)",
       });
       assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
     });
-  } else {
-    skip("ADMIN_REVIEWER get report detail", "no OPEN reports");
-    skip("ADMIN_REVIEWER dismiss report", "no OPEN reports");
-    skip("ADMIN_REVIEWER escalate report", "no OPEN reports");
-    skip("ADMIN_REVIEWER cannot set ACTION_TAKEN", "no OPEN reports");
+
+    test("ADMIN_REVIEWER escalate report -> 200", async () => {
+      const list = await apiRequest("GET", "/api/admin/risk-reports?status=OPEN", adminCookie);
+      const candidates: any[] = list.body?.data ?? [];
+      const targetId = candidates[0]?.id;
+      assert.ok(targetId, "Need an OPEN report for escalate");
+      const r = await apiRequest("POST", `/api/admin/risk-reports/${targetId}/escalate`, adminCookie, {
+        reviewerNotes: "Escalate test note",
+      });
+      assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
+    });
   }
 
   test("ADMIN_REVIEWER can inactivate provider -> 200", async () => {
@@ -219,7 +234,8 @@ async function runAll(ctx: TestContext): Promise<void> {
     });
   });
 
-  // ADMIN_REVIEWER: NO puede suspend/ban/reactivate/restrict ni ver audit-log
+  // ── ADMIN_REVIEWER: negatives ─────────────────────────────────────────────
+
   test("ADMIN_REVIEWER cannot suspend -> 403", async () => {
     const r = await apiRequest("POST", `/api/admin/providers/${PROVIDER_ID}/suspend`, adminCookie, { reason: "x" });
     assert.equal(r.status, 403);
@@ -245,13 +261,15 @@ async function runAll(ctx: TestContext): Promise<void> {
     assert.equal(r.status, 403);
   });
 
-  // PROVIDER: no es admin
+  // ── PROVIDER: no es admin ───────────────────────────────────────────────────
+
   test("PROVIDER cannot list risk-reports -> 403", async () => {
     const r = await apiRequest("GET", "/api/admin/risk-reports", providerCookie);
     assert.equal(r.status, 403);
   });
 
-  // SUPER_ADMIN: puede restrict, suspend, ban, reactivate con reason
+  // ── SUPER_ADMIN: restrict / suspend / reactivate / ban ───────────────────────
+
   test("SUPER_ADMIN restrict with suspendedUntil -> 200", async () => {
     const future = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
     const r = await apiRequest("POST", `/api/admin/providers/${PROVIDER_ID}/restrict`, superCookie, {
@@ -294,20 +312,26 @@ async function runAll(ctx: TestContext): Promise<void> {
     assert.equal(db?.statusReason, "Test ban by SUPER_ADMIN (test provider)");
   });
 
-  // SUPER_ADMIN: ACTION_TAKEN s\u00ed est\u00e1 permitido (a diferencia de ADMIN_REVIEWER)
-  test("SUPER_ADMIN can set ACTION_TAKEN on report -> 200", async () => {
-    const list = await apiRequest("GET", "/api/admin/risk-reports?status=OPEN", adminCookie);
-    const candidates: any[] = list.body?.data ?? [];
-    const targetId = candidates[0]?.id;
-    if (!targetId) { skip("SUPER_ADMIN ACTION_TAKEN", "no OPEN reports"); return; }
-    const r = await apiRequest("PATCH", `/api/admin/risk-reports/${targetId}/status`, superCookie, {
-      status: "ACTION_TAKEN",
-      reason: "Test ACTION_TAKEN by SUPER_ADMIN",
-    });
-    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
-  });
+  // ── SUPER_ADMIN: ACTION_TAKEN sí está permitido ─────────────────────────────
 
-  // Validaciones Zod y auth
+  if (hasReports) {
+    test("SUPER_ADMIN can set ACTION_TAKEN -> 200", async () => {
+      const list = await apiRequest("GET", "/api/admin/risk-reports?status=OPEN", adminCookie);
+      const candidates: any[] = list.body?.data ?? [];
+      const targetId = candidates[0]?.id;
+      assert.ok(targetId, "Need an OPEN report for ACTION_TAKEN test");
+      const r = await apiRequest("PATCH", `/api/admin/risk-reports/${targetId}/status`, superCookie, {
+        status: "ACTION_TAKEN",
+        reason: "Test ACTION_TAKEN by SUPER_ADMIN",
+      });
+      assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
+    });
+  } else {
+    skip("SUPER_ADMIN can set ACTION_TAKEN", "no OPEN reports");
+  }
+
+  // ── Validaciones Zod y auth ────────────────────────────────────────────────
+
   test("SUPER_ADMIN suspend without reason -> 400", async () => {
     const r = await apiRequest("POST", `/api/admin/providers/${PROVIDER_ID}/suspend`, superCookie, {});
     assert.equal(r.status, 400, `Expected 400, got ${r.status}`);
@@ -320,13 +344,13 @@ async function runAll(ctx: TestContext): Promise<void> {
     assert.equal(r.status, 401, `Expected 401, got ${r.status}`);
   });
 
-  // Audit log verification (criterio 4)
+  // ── Audit logs (criterio 4) ────────────────────────────────────────────────
+
   test("Audit log entry for PROVIDER_SUSPENDED", async () => {
-    // Crear provider temporal, suspender, verificar audit log, limpiar
     const tempSlug = `${TEST_PREFIX}audit-${Date.now()}`;
     const temp = await prisma.provider.create({
       data: {
-userId: providerUserId,
+        userId: providerUserId,
         displayName: "TEST Audit Log",
         slug: tempSlug,
         city: LegacyCity.MANAGUA,
@@ -358,17 +382,20 @@ userId: providerUserId,
       assert.ok(entry.reason?.trim(), "Audit reason should be non-empty");
       assert.equal(entry.targetType, "PROVIDER");
     } finally {
-      await prisma.provider.deleteMany({ where: { slug: tempSlug } }).catch(() => {});
+      try {
+        await prisma.provider.deleteMany({ where: { slug: tempSlug } });
+      } catch {
+        // ignore cleanup failure
+      }
     }
   });
 
-  if (reportId) {
+  if (hasReports) {
     test("Audit log entry for REPORT_ESCALATED", async () => {
-      // Buscar un report OPEN para hacer escalate
       const list = await apiRequest("GET", "/api/admin/risk-reports?status=OPEN", adminCookie);
       const candidates: any[] = list.body?.data ?? [];
       const targetId = candidates[0]?.id;
-      if (!targetId) { skip("Audit log REPORT_ESCALATED", "no OPEN reports"); return; }
+      assert.ok(targetId, "Need an OPEN report for escalate audit log test");
       const escRes = await apiRequest("POST", `/api/admin/risk-reports/${targetId}/escalate`, adminCookie, {
         reviewerNotes: "Audit log test escalate note",
       });

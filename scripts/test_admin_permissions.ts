@@ -88,6 +88,8 @@ interface TestContext {
   adminCookie: string;
   superCookie: string;
   providerCookie: string;
+  adminUserId: string;
+  superUserId: string;
   providerUserId: string;
   testProviderId: string;
   openReports: any[];
@@ -135,6 +137,8 @@ async function buildContext(): Promise<TestContext> {
     adminCookie: adminLogin.cookie,
     superCookie: superLogin.cookie,
     providerCookie: provLogin.cookie,
+    adminUserId: adminLogin.userId,
+    superUserId: superLogin.userId,
     providerUserId: provLogin.userId,
     testProviderId: testProvider.id,
     openReports,
@@ -167,7 +171,7 @@ async function cleanup(providerId: string): Promise<void> {
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
 async function runAll(ctx: TestContext): Promise<void> {
-  const { adminCookie, superCookie, providerCookie, providerUserId, testProviderId,
+  const { adminCookie, superCookie, providerCookie, adminUserId, superUserId, providerUserId, testProviderId,
     reportForGetAndDismiss, reportForActionTakenNeg, reportForEscalate,
     reportForSuperActionTaken, reportForAuditEscalate } = ctx;
   const PROVIDER_ID = testProviderId;
@@ -376,9 +380,9 @@ async function runAll(ctx: TestContext): Promise<void> {
       assert.equal(logRes.status, 200, "Audit log GET should succeed");
       const logs: any[] = logRes.body?.data ?? [];
       const entry = logs.find(
-        (l: any) => l.action === "PROVIDER_SUSPENDED" && l.targetId === temp.id,
+        (l: any) => l.action === "PROVIDER_SUSPENDED" && l.targetId === temp.id && l.actorUserId === superUserId,
       );
-      assert.ok(entry, "Should find PROVIDER_SUSPENDED audit log entry");
+      assert.ok(entry, "Should find PROVIDER_SUSPENDED audit log entry for superUserId");
       assert.ok(entry.reason?.trim(), "Audit reason should be non-empty");
       assert.equal(entry.targetType, "PROVIDER");
     } finally {
@@ -399,9 +403,9 @@ async function runAll(ctx: TestContext): Promise<void> {
       const logRes = await apiRequest("GET", "/api/admin/audit-log", superCookie);
       const logs: any[] = logRes.body?.data ?? [];
       const entry = logs.find(
-        (l: any) => l.action === "REPORT_ESCALATED" && l.targetId === reportForAuditEscalate,
+        (l: any) => l.action === "REPORT_ESCALATED" && l.targetId === reportForAuditEscalate && l.actorUserId === adminUserId,
       );
-      assert.ok(entry, "Should find REPORT_ESCALATED audit log entry");
+      assert.ok(entry, "Should find REPORT_ESCALATED audit log entry for adminUserId");
       assert.equal(entry.targetType, "RISK_REPORT");
       assert.ok(entry.reason?.trim(), "Escalate reason should be non-empty");
     });

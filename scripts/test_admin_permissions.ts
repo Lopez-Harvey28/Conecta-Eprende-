@@ -320,6 +320,9 @@ async function runAll(ctx: TestContext): Promise<void> {
     const db = await prisma.provider.findUnique({ where: { id: PROVIDER_ID }, select: { status: true, statusReason: true } });
     assert.equal(db?.status, "BANNED");
     assert.equal(db?.statusReason, "Test ban by SUPER_ADMIN (test provider)");
+    await apiRequest("POST", `/api/admin/providers/${PROVIDER_ID}/reactivate`, superCookie, {
+      reason: "Cleanup post-ban for deterministic Zod tests",
+    });
   });
 
   // ── SUPER_ADMIN: ACTION_TAKEN sí está permitido ─────────────────────────────

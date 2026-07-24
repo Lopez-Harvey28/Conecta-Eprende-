@@ -92,16 +92,15 @@ interface TestContext {
   superUserId: string;
   providerUserId: string;
   testProviderId: string;
-  openReports: any[];
-  reportForGetAndDismiss: string | null;
-  reportForActionTakenNeg: string | null;
-  reportForEscalate: string | null;
-  reportForSuperActionTaken: string | null;
-  reportForAuditEscalate: string | null;
+  reportForGetAndDismiss: string;
+  reportForActionTakenNeg: string;
+  reportForEscalate: string;
+  reportForSuperActionTaken: string;
+  reportForAuditEscalate: string;
 }
 
 async function buildContext(): Promise<TestContext> {
-  console.log("\n-> Setup: login + test provider");
+  console.log("\n-> Setup: login + test provider + test reports");
   const adminLogin = await login("admin@conecta.test", SEED_PASSWORD);
   const superLogin = await login("superadmin@conecta.test", SEED_PASSWORD);
   const provLogin = await login("textil@conecta.test", SEED_PASSWORD);
@@ -129,9 +128,22 @@ async function buildContext(): Promise<TestContext> {
     },
   });
 
-  // Obtener TODOS los risk reports OPEN de una vez
-  const reportsRes = await apiRequest("GET", "/api/admin/risk-reports?status=OPEN", adminLogin.cookie);
-  const openReports: any[] = reportsRes.body?.data ?? [];
+  // Crear 5 RiskReport OPEN asociados al provider temporal para tests deterministas
+  const createdReportIds: string[] = [];
+  const now = new Date();
+  for (let i = 0; i < 5; i++) {
+    const r = await prisma.riskReport.create({
+      data: {
+        providerId: testProvider.id,
+        riskScore: 50 + i,
+        suspiciousCyclesCount: 1,
+        status: "OPEN",
+        recommendedAction: `Test risk report ${i + 1} for admin permission tests`,
+        generatedAt: now,
+      },
+    });
+    createdReportIds.push(r.id);
+  }
 
   return {
     adminCookie: adminLogin.cookie,
@@ -141,21 +153,24 @@ async function buildContext(): Promise<TestContext> {
     superUserId: superLogin.userId,
     providerUserId: provLogin.userId,
     testProviderId: testProvider.id,
-    openReports,
-    reportForGetAndDismiss:  openReports[0]?.id ?? null,
-    reportForActionTakenNeg:  openReports[1]?.id ?? null,
-    reportForEscalate:        openReports[2]?.id ?? null,
-    reportForSuperActionTaken: openReports[3]?.id ?? null,
-    reportForAuditEscalate:   openReports[4]?.id ?? null,
+    reportForGetAndDismiss:  createdReportIds[0],
+    reportForActionTakenNeg: createdReportIds[1],
+    reportForEscalate:       createdReportIds[2],
+    reportForSuperActionTaken: createdReportIds[3],
+    reportForAuditEscalate:  createdReportIds[4],
   };
 }
 
 async function cleanup(providerId: string): Promise<void> {
   console.log("\n-> Cleanup");
   try {
+    await prisma.riskReport.deleteMany({ where: { providerId } });
+  } catch {
+    console.warn("  Cleanup warning: could not delete test risk reports (cascade will handle)");
+  }
+  try {
     await prisma.provider.deleteMany({ where: { slug: { startsWith: TEST_PREFIX } } });
-  } catch (err) {
-    // FK constraint puede bloquear delete — fallback: marcar INACTIVE
+  } catch {
     try {
       await prisma.provider.updateMany({
         where: { slug: { startsWith: TEST_PREFIX } },
@@ -176,20 +191,6 @@ async function runAll(ctx: TestContext): Promise<void> {
     reportForSuperActionTaken, reportForAuditEscalate } = ctx;
   const PROVIDER_ID = testProviderId;
 
-  // ── Granular batch skip ────────────────────────────────────────────────────
-  if (!reportForGetAndDismiss)
-    skip("ADMIN_REVIEWER get report detail", "no OPEN reports in seed");
-  if (!reportForGetAndDismiss)
-    skip("ADMIN_REVIEWER dismiss report", "no OPEN reports in seed");
-  if (!reportForActionTakenNeg)
-    skip("ADMIN_REVIEWER cannot set ACTION_TAKEN", "need ≥2 OPEN reports");
-  if (!reportForEscalate)
-    skip("ADMIN_REVIEWER escalate report", "need ≥3 OPEN reports");
-  if (!reportForSuperActionTaken)
-    skip("SUPER_ADMIN can set ACTION_TAKEN", "need ≥4 OPEN reports");
-  if (!reportForAuditEscalate)
-    skip("Audit log entry for REPORT_ESCALATED", "need ≥5 OPEN reports");
-
   // ── ADMIN_REVIEWER: list / get / update / escalate ─────────────────────────
 
   test("ADMIN_REVIEWER list risk-reports -> 200", async () => {
@@ -198,40 +199,34 @@ async function runAll(ctx: TestContext): Promise<void> {
     assert.ok(Array.isArray(r.body?.data));
   });
 
-  if (reportForGetAndDismiss) {
-    test("ADMIN_REVIEWER get report detail -> 200", async () => {
-      const r = await apiRequest("GET", `/api/admin/risk-reports/${reportForGetAndDismiss}`, adminCookie);
-      assert.equal(r.status, 200);
-      assert.equal(r.body?.data?.id, reportForGetAndDismiss);
-    });
+  test("ADMIN_REVIEWER get report detail -> 200", async () => {
+    const r = await apiRequest("GET", `/api/admin/risk-reports/${reportForGetAndDismiss}`, adminCookie);
+    assert.equal(r.status, 200);
+    assert.equal(r.body?.data?.id, reportForGetAndDismiss);
+  });
 
-    test("ADMIN_REVIEWER dismiss report -> 200", async () => {
-      const r = await apiRequest("PATCH", `/api/admin/risk-reports/${reportForGetAndDismiss}/status`, adminCookie, {
-        status: "DISMISSED",
-        reason: "Test dismiss by ADMIN_REVIEWER",
-      });
-      assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
+  test("ADMIN_REVIEWER dismiss report -> 200", async () => {
+    const r = await apiRequest("PATCH", `/api/admin/risk-reports/${reportForGetAndDismiss}/status`, adminCookie, {
+      status: "DISMISSED",
+      reason: "Test dismiss by ADMIN_REVIEWER",
     });
-  }
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
+  });
 
-  if (reportForActionTakenNeg) {
-    test("ADMIN_REVIEWER cannot set ACTION_TAKEN -> 403", async () => {
-      const r = await apiRequest("PATCH", `/api/admin/risk-reports/${reportForActionTakenNeg}/status`, adminCookie, {
-        status: "ACTION_TAKEN",
-        reason: "Test ACTION_TAKEN by ADMIN_REVIEWER (should be 403)",
-      });
-      assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  test("ADMIN_REVIEWER cannot set ACTION_TAKEN -> 403", async () => {
+    const r = await apiRequest("PATCH", `/api/admin/risk-reports/${reportForActionTakenNeg}/status`, adminCookie, {
+      status: "ACTION_TAKEN",
+      reason: "Test ACTION_TAKEN by ADMIN_REVIEWER (should be 403)",
     });
-  }
+    assert.equal(r.status, 403, `Expected 403, got ${r.status}`);
+  });
 
-  if (reportForEscalate) {
-    test("ADMIN_REVIEWER escalate report -> 200", async () => {
-      const r = await apiRequest("POST", `/api/admin/risk-reports/${reportForEscalate}/escalate`, adminCookie, {
-        reviewerNotes: "Escalate test note",
-      });
-      assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
+  test("ADMIN_REVIEWER escalate report -> 200", async () => {
+    const r = await apiRequest("POST", `/api/admin/risk-reports/${reportForEscalate}/escalate`, adminCookie, {
+      reviewerNotes: "Escalate test note",
     });
-  }
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
+  });
 
   test("ADMIN_REVIEWER can inactivate provider -> 200", async () => {
     const r = await apiRequest("POST", `/api/admin/providers/${PROVIDER_ID}/inactivate`, adminCookie, {
@@ -327,15 +322,13 @@ async function runAll(ctx: TestContext): Promise<void> {
 
   // ── SUPER_ADMIN: ACTION_TAKEN sí está permitido ─────────────────────────────
 
-  if (reportForSuperActionTaken) {
-    test("SUPER_ADMIN can set ACTION_TAKEN -> 200", async () => {
-      const r = await apiRequest("PATCH", `/api/admin/risk-reports/${reportForSuperActionTaken}/status`, superCookie, {
-        status: "ACTION_TAKEN",
-        reason: "Test ACTION_TAKEN by SUPER_ADMIN",
-      });
-      assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
+  test("SUPER_ADMIN can set ACTION_TAKEN -> 200", async () => {
+    const r = await apiRequest("PATCH", `/api/admin/risk-reports/${reportForSuperActionTaken}/status`, superCookie, {
+      status: "ACTION_TAKEN",
+      reason: "Test ACTION_TAKEN by SUPER_ADMIN",
     });
-  }
+    assert.equal(r.status, 200, `Expected 200, got ${r.status}: ${r.body?.error}`);
+  });
 
   // ── Validaciones Zod y auth ────────────────────────────────────────────────
 
@@ -397,22 +390,20 @@ async function runAll(ctx: TestContext): Promise<void> {
     }
   });
 
-  if (reportForAuditEscalate) {
-    test("Audit log entry for REPORT_ESCALATED", async () => {
-      const escRes = await apiRequest("POST", `/api/admin/risk-reports/${reportForAuditEscalate}/escalate`, adminCookie, {
-        reviewerNotes: "Audit log test escalate note",
-      });
-      assert.equal(escRes.status, 200, "Escalate should succeed");
-      const logRes = await apiRequest("GET", "/api/admin/audit-log", superCookie);
-      const logs: any[] = logRes.body?.data ?? [];
-      const entry = logs.find(
-        (l: any) => l.action === "REPORT_ESCALATED" && l.targetId === reportForAuditEscalate && l.actorUserId === adminUserId,
-      );
-      assert.ok(entry, "Should find REPORT_ESCALATED audit log entry for adminUserId");
-      assert.equal(entry.targetType, "RISK_REPORT");
-      assert.ok(entry.reason?.trim(), "Escalate reason should be non-empty");
+  test("Audit log entry for REPORT_ESCALATED", async () => {
+    const escRes = await apiRequest("POST", `/api/admin/risk-reports/${reportForAuditEscalate}/escalate`, adminCookie, {
+      reviewerNotes: "Audit log test escalate note",
     });
-  }
+    assert.equal(escRes.status, 200, "Escalate should succeed");
+    const logRes = await apiRequest("GET", "/api/admin/audit-log", superCookie);
+    const logs: any[] = logRes.body?.data ?? [];
+    const entry = logs.find(
+      (l: any) => l.action === "REPORT_ESCALATED" && l.targetId === reportForAuditEscalate && l.actorUserId === adminUserId,
+    );
+    assert.ok(entry, "Should find REPORT_ESCALATED audit log entry for adminUserId");
+    assert.equal(entry.targetType, "RISK_REPORT");
+    assert.ok(entry.reason?.trim(), "Escalate reason should be non-empty");
+  });
 
   // ─── Execute ────────────────────────────────────────────────────────────
   let passed = 0, failed = 0, skippedCount = 0;

@@ -34,7 +34,7 @@ API_URL=http://localhost:3001 npx tsx scripts/test_admin_permissions.ts
 ## Salida esperada
 
 ```
--> Setup: login + test provider
+-> Setup: login + test provider + test reports
 
 -> Running tests:
 
@@ -44,7 +44,7 @@ V ADMIN_REVIEWER get report detail -> 200
 V Audit log entry for PROVIDER_SUSPENDED
 V Audit log entry for REPORT_ESCALATED
 
-ADMIN_PERMISSION_TESTS_OK (24 passed, 0 skipped, 0 failed)
+ADMIN_PERMISSION_TESTS_OK (21 passed, 0 skipped, 0 failed)
 ```
 
 Si algún test falla, el output muestra cual falló con el mensaje de error del servidor.
@@ -77,10 +77,10 @@ Si algún test falla, el output muestra cual falló con el mensaje de error del 
 
 ## Notas sobre idempotencia
 
-- El script crea providers temporales con slug `test-admin-perm-*` al inicio y los elimina al final via `Prisma.provider.deleteMany`.
-- Los tests de ban suspenden `seed_provider_textil` en estado ACTIVE, lo bannean, y NO lo revierten (BANNED no es reversible). **Este test solo puede ejecutarse una vez limpia sin re-seedear.**
-- Los tests que mutan estado de providers (suspend/reactivate/restrict) sobre `seed_provider_textil` intentan cleanup al final.
-- Si no hay risk reports OPEN en el seed, los tests de reports se **saltan** con `O [skipped: no OPEN reports]`. Esto es normal si el seed no generó reports.
+- El script crea un provider temporal con slug `test-admin-perm-*` al inicio y lo elimina al final via `prisma.provider.deleteMany`.
+- El script crea **5 RiskReport temporales** en estado `OPEN` asociados al provider de prueba, para que los tests de reports (dismiss/escalate/ACTION_TAKEN/audit) sean deterministas e independientes del seed. Estos reports se eliminan explícitamente en cleanup antes del provider (con fallback al cascade de Prisma).
+- Los tests que mutan estado del provider (suspend/reactivate/restrict/ban) sobre el provider temporal hacen cleanup al final de cada test (reactivate post-ban, reactivate post-restrict, etc.) para mantener el estado determinista entre corridas.
+- La suite es **totalmente idempotente**: se puede ejecutar múltiples veces sin re-seedear, ya que crea y limpia sus propios fixtures.
 
 ## Agregar nuevos tests
 
@@ -96,7 +96,7 @@ test("DESCRIPCION -> EXPECTED_STATUS", async () => {
 
 El test requiere:
 - PostgreSQL corriendo (`DATABASE_URL`)
-- Seed aplicado
+- Seed aplicado (necesario para las cuentas admin y provider de login: `admin@`, `superadmin@`, `textil@`)
 - Server Express escuchando (`npm run dev`)
 
 No es standalone. Para CI, sequence típico:
@@ -107,3 +107,5 @@ sleep 5
 npm run test:admin-permissions
 kill %1
 ```
+
+La suite crea y limpia sus propios fixtures (provider temporal + 5 RiskReport), por lo que no contamina el estado del seed entre corridas.
